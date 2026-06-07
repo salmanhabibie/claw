@@ -1,7 +1,13 @@
-# claw — Pembanding File TXT
+# claw — Pembanding & Filter Email TXT
 
-Aplikasi sederhana untuk membandingkan dua file `.txt` (File 1 vs File 2) dan
-menghitung **berapa baris yang hilang**. Tersedia dua versi: aplikasi web dan CLI.
+Aplikasi sederhana untuk file `.txt`, dengan dua fitur:
+
+1. **Bandingkan File** — membandingkan dua file (File 1 vs File 2) dan menghitung
+   **berapa baris yang hilang**. Pencocokan berdasarkan isi baris (urutan acak aman).
+2. **Filter Email** — kelompokkan & hitung email per penyedia
+   (gmail.com, hotmail.com, comcast.net, yahoo.com, dll), lalu filter / ambil yang dibutuhkan.
+
+Tersedia dua versi: aplikasi web dan CLI.
 
 ## 1. Aplikasi Web (paling mudah)
 
@@ -51,6 +57,39 @@ Baris TAMBAHAN di File 2 : 1
 | `--no-blank`    | Abaikan baris kosong                         |
 
 > Exit code `0` jika kedua file sama, `1` jika ada perbedaan (berguna untuk skrip otomatis).
+
+## 3. Filter Email
+
+### Versi Web
+Buka [`index.html`](index.html) → pilih tab **✉️ Filter Email**:
+1. Masukkan daftar email (file/tempel — urutan acak tidak masalah).
+2. Klik **Deteksi Domain** → muncul semua domain beserta jumlahnya.
+3. Centang domain yang diinginkan (atau pakai tombol cepat: Gmail, Hotmail, Comcast.net, dll).
+4. Hasil bisa di-**Copy** atau **Download .txt**.
+   - **Mode buang**: centang domain yang ingin *disembunyikan* (sisanya yang tampil).
+
+### Versi CLI (Python)
+
+```bash
+# Ringkasan jumlah email per domain
+python3 filter_email.py emails.txt
+
+# Ambil hanya gmail.com & hotmail.com, simpan ke file
+python3 filter_email.py emails.txt --only gmail.com hotmail.com -o hasil.txt
+
+# Buang comcast.net & yahoo.com
+python3 filter_email.py emails.txt --exclude comcast.net yahoo.com
+
+# Hapus email duplikat
+python3 filter_email.py emails.txt --unique
+```
+
+| Opsi              | Keterangan                                  |
+|-------------------|---------------------------------------------|
+| `--only DOMAIN…`  | Hanya tampilkan email dari domain tsb       |
+| `--exclude DOMAIN…` | Sembunyikan email dari domain tsb         |
+| `-o, --output FILE` | Simpan hasil ke file                      |
+| `--unique`        | Hapus email duplikat                        |
 
 ## Catatan
 
