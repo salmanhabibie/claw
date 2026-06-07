@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Pembanding File TXT - Cek Baris yang Hilang</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --card: #1e293b;
+      --border: #334155;
+      --text: #e2e8f0;
+      --muted: #94a3b8;
+      --accent: #38bdf8;
+      --danger: #f87171;
+      --success: #4ade80;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.5;
+      padding: 24px;
+    }
+    .wrap { max-width: 1000px; margin: 0 auto; }
+    h1 { font-size: 1.6rem; margin: 0 0 4px; }
+    .sub { color: var(--muted); margin: 0 0 24px; }
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      margin-bottom: 20px;
+    }
+    @media (max-width: 700px) { .grid { grid-template-columns: 1fr; } }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 16px;
+    }
+    .card h2 { font-size: 1rem; margin: 0 0 12px; }
+    .drop {
+      border: 2px dashed var(--border);
+      border-radius: 10px;
+      padding: 20px;
+      text-align: center;
+      color: var(--muted);
+      cursor: pointer;
+      transition: 0.15s;
+    }
+    .drop.drag { border-color: var(--accent); color: var(--accent); }
+    .drop input { display: none; }
+    .filename { color: var(--accent); font-size: 0.85rem; margin-top: 8px; word-break: break-all; }
+    textarea {
+      width: 100%;
+      min-height: 160px;
+      margin-top: 12px;
+      background: var(--bg);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px;
+      font-family: "SF Mono", Menlo, Consolas, monospace;
+      font-size: 0.85rem;
+      resize: vertical;
+    }
+    .options {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 16px;
+      margin-bottom: 16px;
+      color: var(--muted);
+      font-size: 0.9rem;
+    }
+    .options label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
+    button {
+      background: var(--accent);
+      color: #03263a;
+      border: none;
+      border-radius: 8px;
+      padding: 12px 24px;
+      font-size: 1rem;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    button:hover { filter: brightness(1.1); }
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+      gap: 12px;
+      margin: 20px 0;
+    }
+    .stat {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 14px;
+      text-align: center;
+    }
+    .stat .num { font-size: 1.8rem; font-weight: 700; }
+    .stat .lbl { color: var(--muted); font-size: 0.8rem; }
+    .num.danger { color: var(--danger); }
+    .num.success { color: var(--success); }
+    .num.accent { color: var(--accent); }
+    .result-list {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 16px;
+      margin-top: 12px;
+    }
+    .result-list h3 { margin: 0 0 10px; font-size: 0.95rem; }
+    .line-item {
+      font-family: "SF Mono", Menlo, Consolas, monospace;
+      font-size: 0.82rem;
+      padding: 4px 8px;
+      border-radius: 4px;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+    .line-item.missing { background: rgba(248,113,113,0.12); border-left: 3px solid var(--danger); }
+    .line-item.added { background: rgba(74,222,128,0.12); border-left: 3px solid var(--success); }
+    .line-num { color: var(--muted); margin-right: 8px; user-select: none; }
+    .empty { color: var(--muted); font-style: italic; }
+    .hidden { display: none; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>📄 Pembanding File TXT</h1>
+    <p class="sub">Bandingkan File 1 dan File 2, lalu lihat berapa baris yang hilang.</p>
+
+    <div class="grid">
+      <div class="card">
+        <h2>File 1 (acuan / asli)</h2>
+        <label class="drop" id="drop1">
+          Klik atau seret file .txt ke sini
+          <input type="file" id="file1" accept=".txt,text/plain" />
+          <div class="filename" id="name1"></div>
+        </label>
+        <textarea id="text1" placeholder="…atau tempel isi File 1 di sini"></textarea>
+      </div>
+
+      <div class="card">
+        <h2>File 2 (pembanding)</h2>
+        <label class="drop" id="drop2">
+          Klik atau seret file .txt ke sini
+          <input type="file" id="file2" accept=".txt,text/plain" />
+          <div class="filename" id="name2"></div>
+        </label>
+        <textarea id="text2" placeholder="…atau tempel isi File 2 di sini"></textarea>
+      </div>
+    </div>
+
+    <div class="options">
+      <label><input type="checkbox" id="optTrim" checked /> Abaikan spasi di awal/akhir baris</label>
+      <label><input type="checkbox" id="optCase" /> Abaikan huruf besar/kecil</label>
+      <label><input type="checkbox" id="optBlank" checked /> Abaikan baris kosong</label>
+    </div>
+
+    <button id="compareBtn">Bandingkan</button>
+
+    <div id="output" class="hidden">
+      <div class="stats">
+        <div class="stat"><div class="num accent" id="cnt1">0</div><div class="lbl">Baris File 1</div></div>
+        <div class="stat"><div class="num accent" id="cnt2">0</div><div class="lbl">Baris File 2</div></div>
+        <div class="stat"><div class="num danger" id="cntMissing">0</div><div class="lbl">Hilang di File 2</div></div>
+        <div class="stat"><div class="num success" id="cntAdded">0</div><div class="lbl">Tambahan di File 2</div></div>
+      </div>
+
+      <div class="result-list">
+        <h3 style="color: var(--danger)">❌ Baris yang HILANG (ada di File 1, tidak ada di File 2)</h3>
+        <div id="missingList"></div>
+      </div>
+
+      <div class="result-list">
+        <h3 style="color: var(--success)">➕ Baris TAMBAHAN (ada di File 2, tidak ada di File 1)</h3>
+        <div id="addedList"></div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    function setupDrop(dropId, inputId, nameId, textId) {
+      const drop = document.getElementById(dropId);
+      const input = document.getElementById(inputId);
+      const nameEl = document.getElementById(nameId);
+      const textEl = document.getElementById(textId);
+
+      input.addEventListener('change', () => {
+        const f = input.files[0];
+        if (f) readFile(f, nameEl, textEl);
+      });
+      drop.addEventListener('dragover', (e) => { e.preventDefault(); drop.classList.add('drag'); });
+      drop.addEventListener('dragleave', () => drop.classList.remove('drag'));
+      drop.addEventListener('drop', (e) => {
+        e.preventDefault();
+        drop.classList.remove('drag');
+        const f = e.dataTransfer.files[0];
+        if (f) readFile(f, nameEl, textEl);
+      });
+    }
+
+    function readFile(file, nameEl, textEl) {
+      nameEl.textContent = '✓ ' + file.name;
+      const reader = new FileReader();
+      reader.onload = (e) => { textEl.value = e.target.result; };
+      reader.readAsText(file);
+    }
+
+    setupDrop('drop1', 'file1', 'name1', 'text1');
+    setupDrop('drop2', 'file2', 'name2', 'text2');
+
+    function normalize(line, opts) {
+      let l = line;
+      if (opts.trim) l = l.trim();
+      if (opts.ignoreCase) l = l.toLowerCase();
+      return l;
+    }
+
+    function splitLines(text, opts) {
+      const raw = text.split(/\r\n|\r|\n/);
+      const lines = [];
+      raw.forEach((line, idx) => {
+        const norm = normalize(line, opts);
+        if (opts.ignoreBlank && norm === '') return;
+        lines.push({ original: line, norm: norm, lineNum: idx + 1 });
+      });
+      return lines;
+    }
+
+    function buildCount(lines) {
+      const map = new Map();
+      lines.forEach(l => map.set(l.norm, (map.get(l.norm) || 0) + 1));
+      return map;
+    }
+
+    function compare() {
+      const opts = {
+        trim: document.getElementById('optTrim').checked,
+        ignoreCase: document.getElementById('optCase').checked,
+        ignoreBlank: document.getElementById('optBlank').checked,
+      };
+
+      const lines1 = splitLines(document.getElementById('text1').value, opts);
+      const lines2 = splitLines(document.getElementById('text2').value, opts);
+
+      const count2 = buildCount(lines2);
+      const count1 = buildCount(lines1);
+
+      // Baris hilang: ada di File 1 tapi jumlahnya kurang di File 2 (memperhitungkan duplikat)
+      const remaining2 = new Map(count2);
+      const missing = [];
+      lines1.forEach(l => {
+        const avail = remaining2.get(l.norm) || 0;
+        if (avail > 0) {
+          remaining2.set(l.norm, avail - 1);
+        } else {
+          missing.push(l);
+        }
+      });
+
+      const remaining1 = new Map(count1);
+      const added = [];
+      lines2.forEach(l => {
+        const avail = remaining1.get(l.norm) || 0;
+        if (avail > 0) {
+          remaining1.set(l.norm, avail - 1);
+        } else {
+          added.push(l);
+        }
+      });
+
+      document.getElementById('output').classList.remove('hidden');
+      document.getElementById('cnt1').textContent = lines1.length;
+      document.getElementById('cnt2').textContent = lines2.length;
+      document.getElementById('cntMissing').textContent = missing.length;
+      document.getElementById('cntAdded').textContent = added.length;
+
+      renderList('missingList', missing, 'missing');
+      renderList('addedList', added, 'added');
+    }
+
+    function renderList(elId, items, cls) {
+      const el = document.getElementById(elId);
+      el.innerHTML = '';
+      if (items.length === 0) {
+        el.innerHTML = '<div class="empty">Tidak ada.</div>';
+        return;
+      }
+      items.forEach(item => {
+        const div = document.createElement('div');
+        div.className = 'line-item ' + cls;
+        div.innerHTML = '<span class="line-num">baris ' + item.lineNum + ':</span>' +
+          escapeHtml(item.original === '' ? '(baris kosong)' : item.original);
+        el.appendChild(div);
+      });
+    }
+
+    function escapeHtml(s) {
+      return s.replace(/[&<>"']/g, c => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+      }[c]));
+    }
+
+    document.getElementById('compareBtn').addEventListener('click', compare);
+  </script>
+</body>
+</html>
