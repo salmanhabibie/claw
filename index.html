@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Pembanding File TXT - Cek Baris yang Hilang</title>
+  <title>Pembanding & Filter Email TXT</title>
   <style>
     :root {
       --bg: #0f172a;
@@ -26,7 +26,20 @@
     }
     .wrap { max-width: 1000px; margin: 0 auto; }
     h1 { font-size: 1.6rem; margin: 0 0 4px; }
-    .sub { color: var(--muted); margin: 0 0 24px; }
+    .sub { color: var(--muted); margin: 0 0 20px; }
+    .tabs { display: flex; gap: 8px; margin-bottom: 20px; flex-wrap: wrap; }
+    .tab-btn {
+      background: var(--card);
+      color: var(--muted);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 18px;
+      cursor: pointer;
+      font-size: 0.95rem;
+    }
+    .tab-btn.active { background: var(--accent); color: #03263a; border-color: var(--accent); font-weight: 600; }
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
     .grid {
       display: grid;
       grid-template-columns: 1fr 1fr;
@@ -44,7 +57,7 @@
     .drop {
       border: 2px dashed var(--border);
       border-radius: 10px;
-      padding: 20px;
+      padding: 18px;
       text-align: center;
       color: var(--muted);
       cursor: pointer;
@@ -75,7 +88,7 @@
       font-size: 0.9rem;
     }
     .options label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
-    button {
+    button.primary {
       background: var(--accent);
       color: #03263a;
       border: none;
@@ -85,7 +98,17 @@
       font-weight: 600;
       cursor: pointer;
     }
-    button:hover { filter: brightness(1.1); }
+    button.primary:hover { filter: brightness(1.1); }
+    button.ghost {
+      background: transparent;
+      color: var(--accent);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 9px 16px;
+      cursor: pointer;
+      font-size: 0.9rem;
+    }
+    button.ghost:hover { border-color: var(--accent); }
     .stats {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
@@ -125,70 +148,179 @@
     .line-num { color: var(--muted); margin-right: 8px; user-select: none; }
     .empty { color: var(--muted); font-style: italic; }
     .hidden { display: none; }
+    /* Email filter */
+    .domain-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+      gap: 8px;
+      margin-top: 12px;
+    }
+    .domain-chip {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 8px 10px;
+      cursor: pointer;
+      font-size: 0.85rem;
+    }
+    .domain-chip:hover { border-color: var(--accent); }
+    .domain-chip .cnt {
+      margin-left: auto;
+      background: var(--border);
+      color: var(--text);
+      border-radius: 20px;
+      padding: 1px 9px;
+      font-size: 0.78rem;
+      font-weight: 600;
+    }
+    .domain-name { word-break: break-all; }
+    .toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 14px 0; }
+    .mode-toggle { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 0.9rem; margin-left: auto; }
+    .preset-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+    .preset-row .lbl { color: var(--muted); font-size: 0.85rem; align-self: center; margin-right: 4px; }
+    .chip-btn {
+      background: transparent; color: var(--text);
+      border: 1px solid var(--border); border-radius: 20px;
+      padding: 4px 12px; cursor: pointer; font-size: 0.82rem;
+    }
+    .chip-btn:hover { border-color: var(--accent); color: var(--accent); }
   </style>
 </head>
 <body>
   <div class="wrap">
-    <h1>📄 Pembanding File TXT</h1>
-    <p class="sub">Bandingkan File 1 dan File 2, lalu lihat berapa baris yang hilang.</p>
+    <h1>📄 Pembanding &amp; Filter Email TXT</h1>
+    <p class="sub">Bandingkan baris antar file, atau filter email berdasarkan penyedia (gmail, hotmail, comcast.net, dll).</p>
 
-    <div class="grid">
-      <div class="card">
-        <h2>File 1 (acuan / asli)</h2>
-        <label class="drop" id="drop1">
-          Klik atau seret file .txt ke sini
-          <input type="file" id="file1" accept=".txt,text/plain" />
-          <div class="filename" id="name1"></div>
-        </label>
-        <textarea id="text1" placeholder="…atau tempel isi File 1 di sini"></textarea>
+    <div class="tabs">
+      <button class="tab-btn active" data-tab="compare">🔍 Bandingkan File</button>
+      <button class="tab-btn" data-tab="email">✉️ Filter Email</button>
+    </div>
+
+    <!-- ============ TAB: BANDINGKAN ============ -->
+    <div class="tab-panel active" id="tab-compare">
+      <div class="grid">
+        <div class="card">
+          <h2>File 1 (acuan / asli)</h2>
+          <label class="drop" id="drop1">
+            Klik atau seret file .txt ke sini
+            <input type="file" id="file1" accept=".txt,text/plain" />
+            <div class="filename" id="name1"></div>
+          </label>
+          <textarea id="text1" placeholder="…atau tempel isi File 1 di sini"></textarea>
+        </div>
+        <div class="card">
+          <h2>File 2 (pembanding)</h2>
+          <label class="drop" id="drop2">
+            Klik atau seret file .txt ke sini
+            <input type="file" id="file2" accept=".txt,text/plain" />
+            <div class="filename" id="name2"></div>
+          </label>
+          <textarea id="text2" placeholder="…atau tempel isi File 2 di sini"></textarea>
+        </div>
       </div>
 
-      <div class="card">
-        <h2>File 2 (pembanding)</h2>
-        <label class="drop" id="drop2">
-          Klik atau seret file .txt ke sini
-          <input type="file" id="file2" accept=".txt,text/plain" />
-          <div class="filename" id="name2"></div>
-        </label>
-        <textarea id="text2" placeholder="…atau tempel isi File 2 di sini"></textarea>
+      <div class="options">
+        <label><input type="checkbox" id="optTrim" checked /> Abaikan spasi di awal/akhir baris</label>
+        <label><input type="checkbox" id="optCase" /> Abaikan huruf besar/kecil</label>
+        <label><input type="checkbox" id="optBlank" checked /> Abaikan baris kosong</label>
+      </div>
+
+      <button class="primary" id="compareBtn">Bandingkan</button>
+
+      <div id="output" class="hidden">
+        <div class="stats">
+          <div class="stat"><div class="num accent" id="cnt1">0</div><div class="lbl">Baris File 1</div></div>
+          <div class="stat"><div class="num accent" id="cnt2">0</div><div class="lbl">Baris File 2</div></div>
+          <div class="stat"><div class="num danger" id="cntMissing">0</div><div class="lbl">Hilang di File 2</div></div>
+          <div class="stat"><div class="num success" id="cntAdded">0</div><div class="lbl">Tambahan di File 2</div></div>
+        </div>
+        <div class="result-list">
+          <h3 style="color: var(--danger)">❌ Baris yang HILANG (ada di File 1, tidak ada di File 2)</h3>
+          <div id="missingList"></div>
+        </div>
+        <div class="result-list">
+          <h3 style="color: var(--success)">➕ Baris TAMBAHAN (ada di File 2, tidak ada di File 1)</h3>
+          <div id="addedList"></div>
+        </div>
       </div>
     </div>
 
-    <div class="options">
-      <label><input type="checkbox" id="optTrim" checked /> Abaikan spasi di awal/akhir baris</label>
-      <label><input type="checkbox" id="optCase" /> Abaikan huruf besar/kecil</label>
-      <label><input type="checkbox" id="optBlank" checked /> Abaikan baris kosong</label>
-    </div>
-
-    <button id="compareBtn">Bandingkan</button>
-
-    <div id="output" class="hidden">
-      <div class="stats">
-        <div class="stat"><div class="num accent" id="cnt1">0</div><div class="lbl">Baris File 1</div></div>
-        <div class="stat"><div class="num accent" id="cnt2">0</div><div class="lbl">Baris File 2</div></div>
-        <div class="stat"><div class="num danger" id="cntMissing">0</div><div class="lbl">Hilang di File 2</div></div>
-        <div class="stat"><div class="num success" id="cntAdded">0</div><div class="lbl">Tambahan di File 2</div></div>
+    <!-- ============ TAB: FILTER EMAIL ============ -->
+    <div class="tab-panel" id="tab-email">
+      <div class="card">
+        <h2>Daftar email</h2>
+        <label class="drop" id="dropE">
+          Klik atau seret file .txt berisi email ke sini
+          <input type="file" id="fileE" accept=".txt,text/plain" />
+          <div class="filename" id="nameE"></div>
+        </label>
+        <textarea id="textE" placeholder="…atau tempel daftar email di sini (urutan acak tidak masalah)"></textarea>
       </div>
 
-      <div class="result-list">
-        <h3 style="color: var(--danger)">❌ Baris yang HILANG (ada di File 1, tidak ada di File 2)</h3>
-        <div id="missingList"></div>
+      <div class="preset-row">
+        <span class="lbl">Pilih cepat:</span>
+        <button class="chip-btn" data-preset="gmail.com">Gmail</button>
+        <button class="chip-btn" data-preset="hotmail.com">Hotmail</button>
+        <button class="chip-btn" data-preset="outlook.com">Outlook</button>
+        <button class="chip-btn" data-preset="yahoo.com">Yahoo</button>
+        <button class="chip-btn" data-preset="comcast.net">Comcast.net</button>
+        <button class="chip-btn" data-preset="aol.com">AOL</button>
+        <button class="chip-btn" data-preset="icloud.com">iCloud</button>
       </div>
 
-      <div class="result-list">
-        <h3 style="color: var(--success)">➕ Baris TAMBAHAN (ada di File 2, tidak ada di File 1)</h3>
-        <div id="addedList"></div>
+      <button class="primary" id="scanBtn" style="margin-top:14px">Deteksi Domain</button>
+
+      <div id="emailOutput" class="hidden">
+        <div class="stats">
+          <div class="stat"><div class="num accent" id="eTotal">0</div><div class="lbl">Total email</div></div>
+          <div class="stat"><div class="num accent" id="eDomains">0</div><div class="lbl">Jumlah domain</div></div>
+          <div class="stat"><div class="num success" id="eSelected">0</div><div class="lbl">Email terpilih</div></div>
+        </div>
+
+        <div class="result-list">
+          <h3>Domain terdeteksi (centang yang mau difilter)</h3>
+          <div class="toolbar">
+            <button class="ghost" id="selAll">Pilih semua</button>
+            <button class="ghost" id="selNone">Kosongkan</button>
+            <div class="mode-toggle">
+              <label><input type="checkbox" id="modeExclude" /> Mode buang (sembunyikan yang dicentang)</label>
+            </div>
+          </div>
+          <div class="domain-grid" id="domainGrid"></div>
+        </div>
+
+        <div class="result-list">
+          <div class="toolbar">
+            <h3 style="margin:0">Hasil (<span id="resultCount">0</span> email)</h3>
+            <button class="ghost" id="copyBtn" style="margin-left:auto">📋 Copy</button>
+            <button class="ghost" id="downloadBtn">⬇️ Download .txt</button>
+          </div>
+          <textarea id="resultArea" readonly placeholder="Hasil filter akan muncul di sini"></textarea>
+        </div>
       </div>
     </div>
   </div>
 
   <script>
+    /* ---------- Tabs ---------- */
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+        document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+        btn.classList.add('active');
+        document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
+      });
+    });
+
+    /* ---------- File drop helper ---------- */
     function setupDrop(dropId, inputId, nameId, textId) {
       const drop = document.getElementById(dropId);
       const input = document.getElementById(inputId);
       const nameEl = document.getElementById(nameId);
       const textEl = document.getElementById(textId);
-
       input.addEventListener('change', () => {
         const f = input.files[0];
         if (f) readFile(f, nameEl, textEl);
@@ -196,30 +328,32 @@
       drop.addEventListener('dragover', (e) => { e.preventDefault(); drop.classList.add('drag'); });
       drop.addEventListener('dragleave', () => drop.classList.remove('drag'));
       drop.addEventListener('drop', (e) => {
-        e.preventDefault();
-        drop.classList.remove('drag');
+        e.preventDefault(); drop.classList.remove('drag');
         const f = e.dataTransfer.files[0];
         if (f) readFile(f, nameEl, textEl);
       });
     }
-
     function readFile(file, nameEl, textEl) {
       nameEl.textContent = '✓ ' + file.name;
       const reader = new FileReader();
       reader.onload = (e) => { textEl.value = e.target.result; };
       reader.readAsText(file);
     }
-
     setupDrop('drop1', 'file1', 'name1', 'text1');
     setupDrop('drop2', 'file2', 'name2', 'text2');
+    setupDrop('dropE', 'fileE', 'nameE', 'textE');
 
+    function escapeHtml(s) {
+      return s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    }
+
+    /* ================= COMPARE ================= */
     function normalize(line, opts) {
       let l = line;
       if (opts.trim) l = l.trim();
       if (opts.ignoreCase) l = l.toLowerCase();
       return l;
     }
-
     function splitLines(text, opts) {
       const raw = text.split(/\r\n|\r|\n/);
       const lines = [];
@@ -230,66 +364,39 @@
       });
       return lines;
     }
-
-    function buildCount(lines) {
-      const map = new Map();
-      lines.forEach(l => map.set(l.norm, (map.get(l.norm) || 0) + 1));
-      return map;
+    function diff(source, target) {
+      const remaining = new Map();
+      target.forEach(l => remaining.set(l.norm, (remaining.get(l.norm) || 0) + 1));
+      const out = [];
+      source.forEach(l => {
+        const avail = remaining.get(l.norm) || 0;
+        if (avail > 0) remaining.set(l.norm, avail - 1);
+        else out.push(l);
+      });
+      return out;
     }
-
     function compare() {
       const opts = {
         trim: document.getElementById('optTrim').checked,
         ignoreCase: document.getElementById('optCase').checked,
         ignoreBlank: document.getElementById('optBlank').checked,
       };
-
       const lines1 = splitLines(document.getElementById('text1').value, opts);
       const lines2 = splitLines(document.getElementById('text2').value, opts);
-
-      const count2 = buildCount(lines2);
-      const count1 = buildCount(lines1);
-
-      // Baris hilang: ada di File 1 tapi jumlahnya kurang di File 2 (memperhitungkan duplikat)
-      const remaining2 = new Map(count2);
-      const missing = [];
-      lines1.forEach(l => {
-        const avail = remaining2.get(l.norm) || 0;
-        if (avail > 0) {
-          remaining2.set(l.norm, avail - 1);
-        } else {
-          missing.push(l);
-        }
-      });
-
-      const remaining1 = new Map(count1);
-      const added = [];
-      lines2.forEach(l => {
-        const avail = remaining1.get(l.norm) || 0;
-        if (avail > 0) {
-          remaining1.set(l.norm, avail - 1);
-        } else {
-          added.push(l);
-        }
-      });
-
+      const missing = diff(lines1, lines2);
+      const added = diff(lines2, lines1);
       document.getElementById('output').classList.remove('hidden');
       document.getElementById('cnt1').textContent = lines1.length;
       document.getElementById('cnt2').textContent = lines2.length;
       document.getElementById('cntMissing').textContent = missing.length;
       document.getElementById('cntAdded').textContent = added.length;
-
       renderList('missingList', missing, 'missing');
       renderList('addedList', added, 'added');
     }
-
     function renderList(elId, items, cls) {
       const el = document.getElementById(elId);
       el.innerHTML = '';
-      if (items.length === 0) {
-        el.innerHTML = '<div class="empty">Tidak ada.</div>';
-        return;
-      }
+      if (items.length === 0) { el.innerHTML = '<div class="empty">Tidak ada.</div>'; return; }
       items.forEach(item => {
         const div = document.createElement('div');
         div.className = 'line-item ' + cls;
@@ -298,14 +405,115 @@
         el.appendChild(div);
       });
     }
+    document.getElementById('compareBtn').addEventListener('click', compare);
 
-    function escapeHtml(s) {
-      return s.replace(/[&<>"']/g, c => ({
-        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
-      }[c]));
+    /* ================= FILTER EMAIL ================= */
+    const EMAIL_RE = /[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/g;
+    let parsedEmails = [];        // { email, domain }
+    const selectedDomains = new Set();
+
+    function extractEmails(text) {
+      const found = text.match(EMAIL_RE) || [];
+      return found.map(e => {
+        const email = e.trim();
+        const domain = email.slice(email.lastIndexOf('@') + 1).toLowerCase();
+        return { email, domain };
+      });
     }
 
-    document.getElementById('compareBtn').addEventListener('click', compare);
+    function scanEmails() {
+      parsedEmails = extractEmails(document.getElementById('textE').value);
+      const counts = new Map();
+      parsedEmails.forEach(({ domain }) => counts.set(domain, (counts.get(domain) || 0) + 1));
+
+      // urutkan domain dari terbanyak
+      const sorted = [...counts.entries()].sort((a, b) => b[1] - a[1]);
+
+      document.getElementById('emailOutput').classList.remove('hidden');
+      document.getElementById('eTotal').textContent = parsedEmails.length;
+      document.getElementById('eDomains').textContent = sorted.length;
+
+      const grid = document.getElementById('domainGrid');
+      grid.innerHTML = '';
+      if (sorted.length === 0) {
+        grid.innerHTML = '<div class="empty">Tidak ada email terdeteksi.</div>';
+      }
+      sorted.forEach(([domain, count]) => {
+        const id = 'dom_' + domain.replace(/[^a-z0-9]/gi, '_');
+        const label = document.createElement('label');
+        label.className = 'domain-chip';
+        label.innerHTML =
+          '<input type="checkbox" id="' + id + '" value="' + escapeHtml(domain) + '" ' +
+          (selectedDomains.has(domain) ? 'checked' : '') + ' />' +
+          '<span class="domain-name">' + escapeHtml(domain) + '</span>' +
+          '<span class="cnt">' + count + '</span>';
+        label.querySelector('input').addEventListener('change', (e) => {
+          if (e.target.checked) selectedDomains.add(domain);
+          else selectedDomains.delete(domain);
+          applyFilter();
+        });
+        grid.appendChild(label);
+      });
+      applyFilter();
+    }
+
+    function applyFilter() {
+      const exclude = document.getElementById('modeExclude').checked;
+      let result;
+      if (selectedDomains.size === 0) {
+        // belum ada pilihan: tampilkan semua
+        result = parsedEmails.map(e => e.email);
+      } else if (exclude) {
+        result = parsedEmails.filter(e => !selectedDomains.has(e.domain)).map(e => e.email);
+      } else {
+        result = parsedEmails.filter(e => selectedDomains.has(e.domain)).map(e => e.email);
+      }
+      document.getElementById('resultArea').value = result.join('\n');
+      document.getElementById('resultCount').textContent = result.length;
+      document.getElementById('eSelected').textContent = result.length;
+    }
+
+    document.getElementById('scanBtn').addEventListener('click', scanEmails);
+    document.getElementById('modeExclude').addEventListener('change', applyFilter);
+
+    document.getElementById('selAll').addEventListener('click', () => {
+      document.querySelectorAll('#domainGrid input').forEach(cb => {
+        cb.checked = true; selectedDomains.add(cb.value);
+      });
+      applyFilter();
+    });
+    document.getElementById('selNone').addEventListener('click', () => {
+      document.querySelectorAll('#domainGrid input').forEach(cb => cb.checked = false);
+      selectedDomains.clear();
+      applyFilter();
+    });
+
+    // tombol pilih cepat (preset) — pilih domain umum kalau ada di data
+    document.querySelectorAll('.chip-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const dom = btn.dataset.preset;
+        selectedDomains.add(dom);
+        if (parsedEmails.length === 0) scanEmails();
+        else scanEmails(); // re-render agar checkbox ikut tercentang
+      });
+    });
+
+    document.getElementById('copyBtn').addEventListener('click', () => {
+      const ta = document.getElementById('resultArea');
+      ta.select();
+      navigator.clipboard.writeText(ta.value).then(() => {
+        const b = document.getElementById('copyBtn');
+        const t = b.textContent; b.textContent = '✅ Tersalin'; setTimeout(() => b.textContent = t, 1200);
+      });
+    });
+    document.getElementById('downloadBtn').addEventListener('click', () => {
+      const blob = new Blob([document.getElementById('resultArea').value], { type: 'text/plain' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'email_terfilter.txt';
+      a.click();
+      URL.revokeObjectURL(a.href);
+    });
   </script>
 </body>
 </html>
