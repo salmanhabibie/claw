@@ -27,9 +27,9 @@ static const char *TAG = "display";
 
 lv_display_t *bsp_display_init(esp_io_expander_handle_t expander)
 {
-    /* ---- 1. Hardware-reset the panel via the expander ---- */
-    ESP_LOGI(TAG, "reset LCD via expander");
-    bsp_reset_lcd(expander);
+    /* ---- 1. Hardware-reset the whole SPD2010 (display + touch) ---- */
+    ESP_LOGI(TAG, "reset panel via expander");
+    bsp_reset_panel(expander);
 
     /* ---- 2. QSPI bus ---- */
     ESP_LOGI(TAG, "init QSPI bus");
@@ -98,7 +98,6 @@ lv_display_t *bsp_display_init(esp_io_expander_handle_t expander)
 
     /* ---- 6. SPD2010 touch (non-fatal: the LCD already works without it) ---- */
     ESP_LOGI(TAG, "init touch");
-    bsp_reset_touch(expander);
     bsp_i2c_scan();   /* show which I2C addresses actually respond */
 
     esp_lcd_panel_io_handle_t tp_io = NULL;
@@ -128,6 +127,8 @@ lv_display_t *bsp_display_init(esp_io_expander_handle_t expander)
     if (terr != ESP_OK) {
         ESP_LOGW(TAG, "touch init failed (%s) - LCD works, touch disabled for now",
                  esp_err_to_name(terr));
+        /* Diagnostic: find which expander pin actually wakes the touch. */
+        bsp_probe_touch_reset(expander);
     }
 
     ESP_LOGI(TAG, "display ready (%dx%d), touch=%s", BSP_LCD_H_RES, BSP_LCD_V_RES,

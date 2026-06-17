@@ -51,25 +51,54 @@ esp_err_t bsp_expander_init(esp_io_expander_handle_t *out_expander)
     return ESP_OK;
 }
 
-void bsp_reset_lcd(esp_io_expander_handle_t expander)
+#define BSP_PANEL_RST_PINS (IO_EXPANDER_PIN_NUM_0 | IO_EXPANDER_PIN_NUM_1 | \
+                            IO_EXPANDER_PIN_NUM_2 | IO_EXPANDER_PIN_NUM_3)
+
+void bsp_reset_panel(esp_io_expander_handle_t expander)
 {
-    esp_io_expander_set_level(expander, BSP_EXIO_LCD_RST, 0);
-    vTaskDelay(pdMS_TO_TICKS(20));
-    esp_io_expander_set_level(expander, BSP_EXIO_LCD_RST, 1);
-    vTaskDelay(pdMS_TO_TICKS(60));
+    /* Reset the whole SPD2010 TDDI chip: assert P0..P3 low together, then
+     * release. Whichever pin is the real reset gets toggled, and the touch
+     * firmware then has time to boot. */
+    esp_io_expander_set_level(expander, BSP_PANEL_RST_PINS, 0);
+    vTaskDelay(pdMS_TO_TICKS(50));
+    esp_io_expander_set_level(expander, BSP_PANEL_RST_PINS, 1);
+    vTaskDelay(pdMS_TO_TICKS(250));
 }
 
-void bsp_reset_touch(esp_io_expander_handle_t expander)
+/* Probe a single 7-bit I2C address: returns true if it ACKs. */
+static bool i2c_probe(uint8_t addr)
 {
-    /* Pulse both P0 and P1: whichever one is really the touch reset (the EXIO
-     * label mapping is uncertain) gets toggled. LCD_RST (P2) is left alone so
-     * the already-initialized display is not disturbed. The SPD2010 touch
-     * firmware needs a good while to boot after reset, hence the long wait. */
-    uint32_t pins = IO_EXPANDER_PIN_NUM_0 | BSP_EXIO_TP_RST;
-    esp_io_expander_set_level(expander, pins, 0);
-    vTaskDelay(pdMS_TO_TICKS(50));
-    esp_io_expander_set_level(expander, pins, 1);
-    vTaskDelay(pdMS_TO_TICKS(200));
+    i2c_cmd_handle_t cmd = i2c_cmd_link_create();
+    i2c_master_start(cmd);
+    i2c_master_write_byte(cmd, (addr << 1) | I2C_MASTER_WRITE, true);
+    i2c_master_stop(cmd);
+    esp_err_t e = i2c_master_cmd_begin(BSP_I2C_PORT, cmd, pdMS_TO_TICKS(50));
+    i2c_cmd_link_delete(cmd);
+    return e == ESP_OK;
+}
+
+void bsp_probe_touch_reset(esp_io_expander_handle_t expander)
+{
+    ESP_LOGW(TAG, "probing which expander pin wakes the touch...");
+    for (int p = 0; p <= 3; p++) {
+        uint32_t pin = (uint32_t)1 << p;   /* IO_EXPANDER_PIN_NUM_p */
+        esp_io_expander_set_dir(expander, pin, IO_EXPANDER_OUTPUT);
+        esp_io_expander_set_level(expander, pin, 0);
+        vTaskDelay(pdMS_TO_TICKS(60));
+        esp_io_expander_set_level(expander, pin, 1);
+        vTaskDelay(pdMS_TO_TICKS(250));
+        /* Report any device that is NOT one of the known fixed ones. */
+        for (uint8_t addr = 0x03; addr < 0x78; addr++) {
+            if (addr == 0x20 || addr == 0x51 || addr == 0x6B) {
+                continue;
+            }
+            if (i2c_probe(addr)) {
+                ESP_LOGW(TAG, "  pulsing P%d -> NEW device at 0x%02X (likely touch!)",
+                         p, addr);
+            }
+        }
+        ESP_LOGW(TAG, "  pulsing P%d done", p);
+    }
 }
 
 void bsp_i2c_scan(void)
