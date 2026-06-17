@@ -1,9 +1,10 @@
 dependencies:
   idf:
     version: ">=5.3"
-  # Graphics stack
-  lvgl/lvgl: "~9.2.0"
-  espressif/esp_lvgl_port: "^2.3.0"
+  # Graphics stack. LVGL must be >=9.3 because recent esp_lvgl_port uses
+  # LV_COLOR_FORMAT_RGB565_SWAPPED, which only exists from LVGL 9.3 onward.
+  lvgl/lvgl: "~9.3.0"
+  espressif/esp_lvgl_port: "^2.4.0"
   # SPD2010 round QSPI LCD + its capacitive touch
   espressif/esp_lcd_spd2010: "^1.0.2"
   espressif/esp_lcd_touch_spd2010: "^1.0.0"
