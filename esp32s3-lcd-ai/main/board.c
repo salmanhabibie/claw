@@ -4,32 +4,36 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "driver/gpio.h"
+#include "driver/i2c.h"
 #include "esp_io_expander_tca9554.h"
 #include "esp_log.h"
 
 static const char *TAG = "board";
 
-esp_err_t bsp_i2c_init(i2c_master_bus_handle_t *out_bus)
+esp_err_t bsp_i2c_init(void)
 {
-    i2c_master_bus_config_t cfg = {
-        .i2c_port = I2C_NUM_0,
+    const i2c_config_t conf = {
+        .mode = I2C_MODE_MASTER,
         .sda_io_num = BSP_I2C_SDA,
         .scl_io_num = BSP_I2C_SCL,
-        .clk_source = I2C_CLK_SRC_DEFAULT,
-        .glitch_ignore_cnt = 7,
-        .flags.enable_internal_pullup = true,
+        .sda_pullup_en = GPIO_PULLUP_ENABLE,
+        .scl_pullup_en = GPIO_PULLUP_ENABLE,
+        .master.clk_speed = 400000,
     };
-    esp_err_t err = i2c_new_master_bus(&cfg, out_bus);
-    ESP_LOGI(TAG, "I2C bus on SDA=%d SCL=%d: %s",
+    esp_err_t err = i2c_param_config(BSP_I2C_PORT, &conf);
+    if (err != ESP_OK) {
+        return err;
+    }
+    err = i2c_driver_install(BSP_I2C_PORT, I2C_MODE_MASTER, 0, 0, 0);
+    ESP_LOGI(TAG, "I2C (legacy) on SDA=%d SCL=%d: %s",
              BSP_I2C_SDA, BSP_I2C_SCL, esp_err_to_name(err));
     return err;
 }
 
-esp_err_t bsp_expander_init(i2c_master_bus_handle_t bus,
-                            esp_io_expander_handle_t *out_expander)
+esp_err_t bsp_expander_init(esp_io_expander_handle_t *out_expander)
 {
     esp_err_t err = esp_io_expander_new_i2c_tca9554(
-        bus, ESP_IO_EXPANDER_I2C_TCA9554_ADDRESS_000, out_expander);
+        BSP_I2C_PORT, ESP_IO_EXPANDER_I2C_TCA9554_ADDRESS_000, out_expander);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "TCA9554 init failed: %s", esp_err_to_name(err));
         return err;

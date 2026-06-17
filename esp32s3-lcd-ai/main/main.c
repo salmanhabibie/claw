@@ -6,7 +6,6 @@
 #include "freertos/queue.h"
 #include "esp_log.h"
 #include "nvs_flash.h"
-#include "driver/i2c_master.h"
 #include "esp_io_expander.h"
 
 #include "wifi.h"
@@ -49,12 +48,11 @@ void app_main(void)
     ESP_ERROR_CHECK(ret);
 
     /* I2C bus -> expander -> display + touch + LVGL. */
-    i2c_master_bus_handle_t i2c_bus;
-    ESP_ERROR_CHECK(bsp_i2c_init(&i2c_bus));
+    ESP_ERROR_CHECK(bsp_i2c_init());
     esp_io_expander_handle_t expander;
-    ESP_ERROR_CHECK(bsp_expander_init(i2c_bus, &expander));
+    ESP_ERROR_CHECK(bsp_expander_init(&expander));
 
-    if (bsp_display_init(i2c_bus, expander) == NULL) {
+    if (bsp_display_init(expander) == NULL) {
         ESP_LOGE(TAG, "display init failed; nothing to show");
         return;
     }

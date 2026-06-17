@@ -15,8 +15,7 @@ static const char *TAG = "display";
 #define LCD_HOST           SPI2_HOST
 #define LCD_BITS_PER_PIXEL 16
 
-lv_display_t *bsp_display_init(i2c_master_bus_handle_t i2c_bus,
-                               esp_io_expander_handle_t expander)
+lv_display_t *bsp_display_init(esp_io_expander_handle_t expander)
 {
     /* ---- 1. Hardware-reset the panel via the expander ---- */
     bsp_reset_lcd(expander);
@@ -88,8 +87,8 @@ lv_display_t *bsp_display_init(i2c_master_bus_handle_t i2c_bus,
     esp_lcd_panel_io_handle_t tp_io = NULL;
     const esp_lcd_panel_io_i2c_config_t tp_io_config =
         ESP_LCD_TOUCH_IO_I2C_SPD2010_CONFIG();
-    ESP_ERROR_CHECK(esp_lcd_new_panel_io_i2c(
-        (esp_lcd_i2c_bus_handle_t)i2c_bus, &tp_io_config, &tp_io));
+    /* Pass the legacy i2c_port_t so the _Generic macro selects the v1 variant. */
+    ESP_ERROR_CHECK(esp_lcd_new_panel_io_i2c(BSP_I2C_PORT, &tp_io_config, &tp_io));
 
     const esp_lcd_touch_config_t tp_config = {
         .x_max = BSP_LCD_H_RES,
