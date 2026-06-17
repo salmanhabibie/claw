@@ -10,24 +10,8 @@
 #include "wifi.h"
 #include "claude_client.h"
 
-/* The console can be the UART bridge or the native USB Serial/JTAG, depending
- * on the board and menuconfig. Pull in whichever driver/VFS API matches, and
- * stay compatible across ESP-IDF versions (the VFS helpers were renamed in
- * newer releases). */
-#if defined(CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG)
-#  include "driver/usb_serial_jtag.h"
-#  if __has_include("driver/usb_serial_jtag_vfs.h")
-#    include "driver/usb_serial_jtag_vfs.h"
-#    define USJ_USE_DRIVER usb_serial_jtag_vfs_use_driver
-#  else
-#    include "esp_vfs_dev.h"
-#    define USJ_USE_DRIVER esp_vfs_usb_serial_jtag_use_driver
-#  endif
-#else
-#  include "driver/uart.h"
-#  include "esp_vfs_dev.h"
-#  define UART_USE_DRIVER esp_vfs_dev_uart_use_driver
-#endif
+#include "driver/uart.h"
+#include "esp_vfs_dev.h"
 
 static const char *TAG = "app";
 
@@ -37,14 +21,8 @@ static void console_init(void)
     setvbuf(stdin, NULL, _IONBF, 0);
     setvbuf(stdout, NULL, _IONBF, 0);
 
-#if defined(CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG)
-    usb_serial_jtag_driver_config_t jtag_cfg = USB_SERIAL_JTAG_DRIVER_CONFIG_DEFAULT();
-    usb_serial_jtag_driver_install(&jtag_cfg);
-    USJ_USE_DRIVER();
-#else
     uart_driver_install(CONFIG_ESP_CONSOLE_UART_NUM, 256, 0, 0, NULL, 0);
-    UART_USE_DRIVER(CONFIG_ESP_CONSOLE_UART_NUM);
-#endif
+    esp_vfs_dev_uart_use_driver(CONFIG_ESP_CONSOLE_UART_NUM);
 }
 
 /* Read one line from the console with local echo. Returns its length. */
