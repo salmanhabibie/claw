@@ -19,5 +19,5 @@ CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
 CONFIG_MBEDTLS_CERTIFICATE_BUNDLE=y
 CONFIG_MBEDTLS_CERTIFICATE_BUNDLE_DEFAULT_FULL=y
 
-# ---- Stacks: main task does setup; the Claude worker (TLS) gets its own task ----
-CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
+# ---- Stacks: main task runs setup + the TLS speaker test, so give it room ----
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=16384

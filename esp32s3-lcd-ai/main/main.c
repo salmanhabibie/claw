@@ -13,6 +13,8 @@
 #include "board.h"
 #include "display.h"
 #include "chat_ui.h"
+#include "audio.h"
+#include "tts.h"
 
 static const char *TAG = "app";
 
@@ -47,6 +49,17 @@ static void claude_worker(void *arg)
     }
 }
 
+/* One-shot Step-1 check: speak a phrase to validate the speaker + TTS path.
+ * Runs in its own task so the TLS handshake has a big enough stack. */
+static void speaker_test_task(void *arg)
+{
+    (void)arg;
+    chat_ui_set_status("Speaking test...");
+    tts_say("Halo! Ini tes suara dari asisten Claude di layar sentuh.");
+    chat_ui_set_status(CONFIG_CLAUDE_MODEL);
+    vTaskDelete(NULL);
+}
+
 void app_main(void)
 {
     /* Give the native USB Serial/JTAG a moment to re-enumerate after the
@@ -78,6 +91,11 @@ void app_main(void)
     }
     ESP_LOGI(TAG, "display ready");
 
+    /* Speaker (PCM5101). Non-fatal: if it fails the text UI still works. */
+    if (audio_init() != ESP_OK) {
+        ESP_LOGW(TAG, "audio init failed; voice output disabled");
+    }
+
     s_prompt_q = xQueueCreate(4, sizeof(char *));
     chat_ui_init(s_prompt_q);
 
@@ -93,6 +111,11 @@ void app_main(void)
         return;
     }
     chat_ui_set_status(CONFIG_CLAUDE_MODEL);
+
+    /* Step 1 voice test: speak a phrase (own task for the TLS stack). */
+    if (strlen(CONFIG_ELEVENLABS_API_KEY) > 0) {
+        xTaskCreate(speaker_test_task, "spktest", CLAUDE_TASK_STACK, NULL, 5, NULL);
+    }
 
     xTaskCreate(claude_worker, "claude", CLAUDE_TASK_STACK, NULL, 5, NULL);
     ESP_LOGI(TAG, "ready");

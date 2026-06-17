@@ -6,6 +6,8 @@ idf_component_register(
         "board.c"
         "display.c"
         "chat_ui.c"
+        "audio.c"
+        "tts.c"
     INCLUDE_DIRS "."
     REQUIRES
         # networking + Claude API
@@ -22,6 +24,7 @@ idf_component_register(
         esp_driver_i2c
         esp_driver_spi
         esp_driver_gpio
+        esp_driver_i2s
         esp_lcd
         # managed components (see idf_component.yml)
         lvgl

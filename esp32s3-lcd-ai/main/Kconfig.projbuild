@@ -37,4 +37,26 @@ menu "AI Assistant Configuration"
             Upper bound on the length of Claude's reply. Smaller values keep
             the on-device response buffer small.
 
+    config ELEVENLABS_API_KEY
+        string "ElevenLabs API key"
+        default ""
+        help
+            Your ElevenLabs API key, used for text-to-speech (and later
+            speech-to-text). Compiled into the firmware via the git-ignored
+            sdkconfig. Do not commit a real key.
+
+    config ELEVENLABS_VOICE_ID
+        string "ElevenLabs voice ID"
+        default "21m00Tcm4TlvDq8ikWAM"
+        help
+            Which ElevenLabs voice to speak with. The default is a built-in
+            voice. Browse voices in the ElevenLabs dashboard for others.
+
+    config ELEVENLABS_MODEL
+        string "ElevenLabs TTS model"
+        default "eleven_multilingual_v2"
+        help
+            TTS model. eleven_multilingual_v2 supports Indonesian and many
+            other languages.
+
 endmenu
