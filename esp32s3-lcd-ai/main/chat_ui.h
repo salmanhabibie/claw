@@ -1,15 +1,14 @@
 #pragma once
 
 #include "freertos/FreeRTOS.h"
-#include "freertos/queue.h"
+#include "freertos/semphr.h"
 
-/* Build the chat screen (conversation log + input box + on-screen keyboard).
- * When the user taps the keyboard's "enter", the typed text is pushed to
- * prompt_q as a malloc'd char* (the receiver must free it). */
-void chat_ui_init(QueueHandle_t prompt_q);
+/* Build the voice UI: a status line, a big round "TALK" button, and a response
+ * area. Tapping TALK gives `talk_sem` so a worker task can start a voice turn. */
+void chat_ui_init(SemaphoreHandle_t talk_sem);
 
-/* Append Claude's reply to the conversation log. Thread-safe. */
-void chat_ui_add_assistant(const char *text);
-
-/* Update the small status line at the top. Thread-safe. */
+/* Update the status line at the top. Thread-safe. */
 void chat_ui_set_status(const char *text);
+
+/* Show response / transcript text in the lower area. Thread-safe. */
+void chat_ui_set_response(const char *text);

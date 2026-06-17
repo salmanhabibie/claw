@@ -17,6 +17,7 @@ static const char *TAG = "tts";
 typedef struct {
     uint8_t carry;
     bool    have_carry;
+    size_t  played;     /* total PCM bytes sent to the speaker (diagnostic) */
 } tts_state_t;
 
 static esp_err_t http_event(esp_http_client_event_t *evt)
@@ -51,6 +52,7 @@ static esp_err_t http_event(esp_http_client_event_t *evt)
     }
     if (n > 0) {
         audio_play_mono16(buf, n);
+        st->played += n;
     }
     free(buf);
     return ESP_OK;
@@ -104,6 +106,10 @@ void tts_say(const char *text)
     } else if (status != 200) {
         ESP_LOGW(TAG, "TTS HTTP %d (check API key / voice ID)", status);
     } else {
-        ESP_LOGI(TAG, "TTS playback done");
+        ESP_LOGI(TAG, "TTS done: HTTP 200, played %u PCM bytes (%.1f s of audio)",
+                 (unsigned)st.played, st.played / 2.0f / 16000.0f);
+        if (st.played == 0) {
+            ESP_LOGW(TAG, "got 0 audio bytes - check voice ID / output_format");
+        }
     }
 }

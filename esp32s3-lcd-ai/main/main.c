@@ -3,7 +3,7 @@
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "freertos/queue.h"
+#include "freertos/semphr.h"
 #include "esp_log.h"
 #include "nvs_flash.h"
 #include "esp_io_expander.h"
@@ -18,13 +18,12 @@
 
 static const char *TAG = "app";
 
-/* TLS handshake + cJSON need a generous stack. */
-#define CLAUDE_TASK_STACK (1024 * 24)
+/* TLS handshake + audio buffers need a generous stack. */
+#define VOICE_TASK_STACK (1024 * 24)
 
-static QueueHandle_t s_prompt_q;
+static SemaphoreHandle_t s_talk_sem;
 
-/* Stop here without rebooting, logging why. A graceful halt keeps the USB
- * Serial/JTAG console alive so the error stays readable in the monitor. */
+/* Stop here without rebooting, logging why (keeps the USB console alive). */
 static void halt(const char *why)
 {
     while (1) {
@@ -33,41 +32,36 @@ static void halt(const char *why)
     }
 }
 
-/* Pulls typed prompts off the queue, calls Claude (blocking HTTPS), and pushes
- * the reply back to the UI. Kept off the LVGL task so the screen stays live. */
-static void claude_worker(void *arg)
+/* Wakes when the TALK button is tapped. Step 1: just speak a phrase, which
+ * validates both touch and the speaker. Mic recording + STT + Claude come
+ * in the next steps. */
+static void voice_task(void *arg)
 {
     (void)arg;
-    char *prompt = NULL;
     for (;;) {
-        if (xQueueReceive(s_prompt_q, &prompt, portMAX_DELAY) == pdTRUE) {
-            char *reply = claude_ask(prompt);
-            free(prompt);
-            chat_ui_add_assistant(reply);
-            free(reply);
-        }
+        xSemaphoreTake(s_talk_sem, portMAX_DELAY);
+        chat_ui_set_status("Speaking...");
+        tts_say("Halo! Tombol bicara berfungsi. Fitur rekam suara sedang disiapkan.");
+        chat_ui_set_status("Tap TALK to speak");
     }
 }
 
-/* One-shot Step-1 check: speak a phrase to validate the speaker + TTS path.
- * Runs in its own task so the TLS handshake has a big enough stack. */
+/* One-shot speaker check on boot, in its own task for the TLS stack. */
 static void speaker_test_task(void *arg)
 {
     (void)arg;
     chat_ui_set_status("Speaking test...");
-    tts_say("Halo! Ini tes suara dari asisten Claude di layar sentuh.");
-    chat_ui_set_status(CONFIG_CLAUDE_MODEL);
+    tts_say("Halo! Ini tes suara dari asisten Claude.");
+    chat_ui_set_status("Tap TALK to speak");
     vTaskDelete(NULL);
 }
 
 void app_main(void)
 {
-    /* Give the native USB Serial/JTAG a moment to re-enumerate after the
-     * post-flash reset so the monitor can reattach and catch the logs below. */
+    /* Let the native USB Serial/JTAG re-enumerate so the monitor can reattach. */
     vTaskDelay(pdMS_TO_TICKS(2000));
     ESP_LOGI(TAG, "=== ESP32-S3-Touch-LCD-1.46B AI assistant starting ===");
 
-    /* NVS is required by the WiFi stack. */
     esp_err_t ret = nvs_flash_init();
     if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
         ESP_ERROR_CHECK(nvs_flash_erase());
@@ -75,7 +69,6 @@ void app_main(void)
     }
     ESP_ERROR_CHECK(ret);
 
-    /* I2C bus -> expander -> display + touch + LVGL. */
     ESP_LOGI(TAG, "init I2C bus");
     if (bsp_i2c_init() != ESP_OK) {
         halt("I2C");
@@ -91,32 +84,25 @@ void app_main(void)
     }
     ESP_LOGI(TAG, "display ready");
 
-    /* Speaker (PCM5101). Non-fatal: if it fails the text UI still works. */
+    /* Speaker (PCM5101). Non-fatal: the UI still works without audio. */
     if (audio_init() != ESP_OK) {
         ESP_LOGW(TAG, "audio init failed; voice output disabled");
     }
 
-    s_prompt_q = xQueueCreate(4, sizeof(char *));
-    chat_ui_init(s_prompt_q);
-
-    if (strlen(CONFIG_CLAUDE_API_KEY) == 0) {
-        chat_ui_set_status("No API key - set it in menuconfig");
-        ESP_LOGE(TAG, "no API key configured");
-        return;
-    }
+    s_talk_sem = xSemaphoreCreateBinary();
+    chat_ui_init(s_talk_sem);
 
     chat_ui_set_status("Connecting to WiFi...");
     if (wifi_connect() != ESP_OK) {
         chat_ui_set_status("WiFi failed - check menuconfig");
-        return;
+    } else {
+        chat_ui_set_status("Tap TALK to speak");
     }
-    chat_ui_set_status(CONFIG_CLAUDE_MODEL);
 
-    /* Step 1 voice test: speak a phrase (own task for the TLS stack). */
+    /* Boot speaker check + the TALK-button worker. */
     if (strlen(CONFIG_ELEVENLABS_API_KEY) > 0) {
-        xTaskCreate(speaker_test_task, "spktest", CLAUDE_TASK_STACK, NULL, 5, NULL);
+        xTaskCreate(speaker_test_task, "spktest", VOICE_TASK_STACK, NULL, 5, NULL);
     }
-
-    xTaskCreate(claude_worker, "claude", CLAUDE_TASK_STACK, NULL, 5, NULL);
+    xTaskCreate(voice_task, "voice", VOICE_TASK_STACK, NULL, 5, NULL);
     ESP_LOGI(TAG, "ready");
 }
