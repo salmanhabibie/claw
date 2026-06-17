@@ -1,0 +1,40 @@
+menu "AI Assistant Configuration"
+
+    config WIFI_SSID
+        string "WiFi SSID"
+        default "myssid"
+        help
+            Name of the 2.4 GHz WiFi network to connect to.
+
+    config WIFI_PASSWORD
+        string "WiFi Password"
+        default "mypassword"
+        help
+            Password of the WiFi network. Leave empty for an open network.
+
+    config CLAUDE_API_KEY
+        string "Anthropic API key"
+        default ""
+        help
+            Your Anthropic API key (starts with sk-ant-...).
+            Get one at https://console.anthropic.com.
+            NOTE: this is compiled into the firmware. Only flash it to a
+            device you control, and don't commit a real key to git.
+
+    config CLAUDE_MODEL
+        string "Claude model ID"
+        default "claude-opus-4-8"
+        help
+            Which Claude model to call. Examples:
+              claude-opus-4-8   - most capable (default)
+              claude-haiku-4-5  - cheapest and fastest, great for a tiny device
+
+    config CLAUDE_MAX_TOKENS
+        int "Max response tokens"
+        default 1024
+        range 64 4096
+        help
+            Upper bound on the length of Claude's reply. Smaller values keep
+            the on-device response buffer small.
+
+endmenu

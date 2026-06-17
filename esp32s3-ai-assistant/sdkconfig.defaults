@@ -1,0 +1,16 @@
+# Target chip
+CONFIG_IDF_TARGET="esp32s3"
+
+# Custom partition table (3 MB app to fit WiFi + TLS + HTTP client)
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+
+# Flash size (most ESP32-S3 DevKits ship with 4 MB or more)
+CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
+
+# Bundled root CA certificates so HTTPS to api.anthropic.com works out of the box
+CONFIG_MBEDTLS_CERTIFICATE_BUNDLE=y
+CONFIG_MBEDTLS_CERTIFICATE_BUNDLE_DEFAULT_FULL=y
+
+# The TLS handshake runs in the main task, so give it a generous stack
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=16384
