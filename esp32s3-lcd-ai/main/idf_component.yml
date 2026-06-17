@@ -1,0 +1,11 @@
+dependencies:
+  idf:
+    version: ">=5.3"
+  # Graphics stack
+  lvgl/lvgl: "~9.2.0"
+  espressif/esp_lvgl_port: "^2.3.0"
+  # SPD2010 round QSPI LCD + its capacitive touch
+  espressif/esp_lcd_spd2010: "^1.0.2"
+  espressif/esp_lcd_touch_spd2010: "^1.0.0"
+  # TCA9554 I2C GPIO expander (drives LCD/touch reset + SD CS)
+  espressif/esp_io_expander_tca9554: "^1.0.1"
