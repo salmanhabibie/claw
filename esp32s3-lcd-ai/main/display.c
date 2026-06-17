@@ -96,34 +96,41 @@ lv_display_t *bsp_display_init(esp_io_expander_handle_t expander)
         return NULL;
     }
 
-    /* ---- 6. SPD2010 touch ---- */
+    /* ---- 6. SPD2010 touch (non-fatal: the LCD already works without it) ---- */
     ESP_LOGI(TAG, "init touch");
     bsp_reset_touch(expander);
+    bsp_i2c_scan();   /* show which I2C addresses actually respond */
+
     esp_lcd_panel_io_handle_t tp_io = NULL;
     const esp_lcd_panel_io_i2c_config_t tp_io_config =
         ESP_LCD_TOUCH_IO_I2C_SPD2010_CONFIG();
     /* Pass the legacy i2c_port_t so the _Generic macro selects the v1 variant. */
-    DISP_CHECK(esp_lcd_new_panel_io_i2c(BSP_I2C_PORT, &tp_io_config, &tp_io));
-
-    const esp_lcd_touch_config_t tp_config = {
-        .x_max = BSP_LCD_H_RES,
-        .y_max = BSP_LCD_V_RES,
-        .rst_gpio_num = -1,   /* reset handled via the expander above */
-        .int_gpio_num = BSP_TP_INT,
-        .levels = { .reset = 0, .interrupt = 0 },
-        .flags = { .swap_xy = 0, .mirror_x = 0, .mirror_y = 0 },
-    };
-    esp_lcd_touch_handle_t tp = NULL;
-    DISP_CHECK(esp_lcd_touch_new_i2c_spd2010(tp_io, &tp_config, &tp));
-
-    const lvgl_port_touch_cfg_t touch_cfg = {
-        .disp = disp,
-        .handle = tp,
-    };
-    if (lvgl_port_add_touch(&touch_cfg) == NULL) {
-        ESP_LOGW(TAG, "lvgl_port_add_touch returned NULL (touch may not work)");
+    esp_err_t terr = esp_lcd_new_panel_io_i2c(BSP_I2C_PORT, &tp_io_config, &tp_io);
+    if (terr == ESP_OK) {
+        const esp_lcd_touch_config_t tp_config = {
+            .x_max = BSP_LCD_H_RES,
+            .y_max = BSP_LCD_V_RES,
+            .rst_gpio_num = -1,   /* reset handled via the expander above */
+            .int_gpio_num = BSP_TP_INT,
+            .levels = { .reset = 0, .interrupt = 0 },
+            .flags = { .swap_xy = 0, .mirror_x = 0, .mirror_y = 0 },
+        };
+        esp_lcd_touch_handle_t tp = NULL;
+        terr = esp_lcd_touch_new_i2c_spd2010(tp_io, &tp_config, &tp);
+        if (terr == ESP_OK) {
+            const lvgl_port_touch_cfg_t touch_cfg = {
+                .disp = disp,
+                .handle = tp,
+            };
+            lvgl_port_add_touch(&touch_cfg);
+        }
+    }
+    if (terr != ESP_OK) {
+        ESP_LOGW(TAG, "touch init failed (%s) - LCD works, touch disabled for now",
+                 esp_err_to_name(terr));
     }
 
-    ESP_LOGI(TAG, "display + touch ready (%dx%d)", BSP_LCD_H_RES, BSP_LCD_V_RES);
+    ESP_LOGI(TAG, "display ready (%dx%d), touch=%s", BSP_LCD_H_RES, BSP_LCD_V_RES,
+             (terr == ESP_OK) ? "yes" : "no");
     return disp;
 }

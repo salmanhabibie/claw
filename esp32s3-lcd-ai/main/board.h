@@ -18,5 +18,8 @@ esp_err_t bsp_expander_init(esp_io_expander_handle_t *out_expander);
 void bsp_reset_lcd(esp_io_expander_handle_t expander);
 void bsp_reset_touch(esp_io_expander_handle_t expander);
 
+/* Probe the I2C bus and log every address that ACKs (diagnostic). */
+void bsp_i2c_scan(void);
+
 /* Turn the LCD backlight on (GPIO5, direct). */
 void bsp_backlight_on(void);

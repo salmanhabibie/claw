@@ -39,7 +39,11 @@ esp_err_t bsp_expander_init(esp_io_expander_handle_t *out_expander)
         return err;
     }
 
-    uint32_t mask = BSP_EXIO_LCD_RST | BSP_EXIO_TP_RST | BSP_EXIO_SD_CS;
+    /* Drive P0..P3 as outputs (high). P0 is included because the EXIOn->Pn
+     * mapping is uncertain: if the labels are off by one, the touch reset is
+     * actually on P0. Driving it too is harmless. */
+    uint32_t mask = IO_EXPANDER_PIN_NUM_0 | BSP_EXIO_LCD_RST |
+                    BSP_EXIO_TP_RST | BSP_EXIO_SD_CS;
     esp_io_expander_set_dir(*out_expander, mask, IO_EXPANDER_OUTPUT);
     /* Idle high: resets de-asserted, SD card deselected. */
     esp_io_expander_set_level(*out_expander, mask, 1);
@@ -57,10 +61,34 @@ void bsp_reset_lcd(esp_io_expander_handle_t expander)
 
 void bsp_reset_touch(esp_io_expander_handle_t expander)
 {
-    esp_io_expander_set_level(expander, BSP_EXIO_TP_RST, 0);
-    vTaskDelay(pdMS_TO_TICKS(20));
-    esp_io_expander_set_level(expander, BSP_EXIO_TP_RST, 1);
-    vTaskDelay(pdMS_TO_TICKS(60));
+    /* Pulse both P0 and P1: whichever one is really the touch reset (the EXIO
+     * label mapping is uncertain) gets toggled. LCD_RST (P2) is left alone so
+     * the already-initialized display is not disturbed. The SPD2010 touch
+     * firmware needs a good while to boot after reset, hence the long wait. */
+    uint32_t pins = IO_EXPANDER_PIN_NUM_0 | BSP_EXIO_TP_RST;
+    esp_io_expander_set_level(expander, pins, 0);
+    vTaskDelay(pdMS_TO_TICKS(50));
+    esp_io_expander_set_level(expander, pins, 1);
+    vTaskDelay(pdMS_TO_TICKS(200));
+}
+
+void bsp_i2c_scan(void)
+{
+    ESP_LOGI(TAG, "I2C scan (looking for expander 0x20, touch ~0x53):");
+    int found = 0;
+    for (uint8_t addr = 0x03; addr < 0x78; addr++) {
+        i2c_cmd_handle_t cmd = i2c_cmd_link_create();
+        i2c_master_start(cmd);
+        i2c_master_write_byte(cmd, (addr << 1) | I2C_MASTER_WRITE, true);
+        i2c_master_stop(cmd);
+        esp_err_t e = i2c_master_cmd_begin(BSP_I2C_PORT, cmd, pdMS_TO_TICKS(50));
+        i2c_cmd_link_delete(cmd);
+        if (e == ESP_OK) {
+            ESP_LOGI(TAG, "  device ACK at 0x%02X", addr);
+            found++;
+        }
+    }
+    ESP_LOGI(TAG, "I2C scan done (%d device(s))", found);
 }
 
 void bsp_backlight_on(void)
