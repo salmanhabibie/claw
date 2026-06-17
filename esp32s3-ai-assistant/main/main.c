@@ -25,13 +25,8 @@
 #  endif
 #else
 #  include "driver/uart.h"
-#  if __has_include("driver/uart_vfs.h")
-#    include "driver/uart_vfs.h"
-#    define UART_USE_DRIVER uart_vfs_use_driver
-#  else
-#    include "esp_vfs_dev.h"
-#    define UART_USE_DRIVER esp_vfs_dev_uart_use_driver
-#  endif
+#  include "esp_vfs_dev.h"
+#  define UART_USE_DRIVER esp_vfs_dev_uart_use_driver
 #endif
 
 static const char *TAG = "app";
