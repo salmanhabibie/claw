@@ -14,3 +14,7 @@ CONFIG_MBEDTLS_CERTIFICATE_BUNDLE_DEFAULT_FULL=y
 
 # The TLS handshake runs in the main task, so give it a generous stack
 CONFIG_ESP_MAIN_TASK_STACK_SIZE=16384
+
+# Boards with a single native USB port (e.g. ESP32-S3-Touch-LCD-1.46B) need the
+# interactive console routed through USB Serial/JTAG so typed input is received.
+CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y

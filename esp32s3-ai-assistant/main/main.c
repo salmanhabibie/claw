@@ -10,8 +10,24 @@
 #include "wifi.h"
 #include "claude_client.h"
 
-#include "driver/uart.h"
-#include "esp_vfs_dev.h"
+/* This board can talk over the native USB Serial/JTAG port or a UART bridge,
+ * depending on the "console output channel" picked in menuconfig. Initialize
+ * whichever one is selected so the characters you type in the monitor actually
+ * reach getchar(). The ESP32-S3-Touch-LCD-1.46B exposes a single native USB
+ * port, so it must use USB Serial/JTAG. */
+#if defined(CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG)
+#  include "driver/usb_serial_jtag.h"
+#  if __has_include("driver/usb_serial_jtag_vfs.h")
+#    include "driver/usb_serial_jtag_vfs.h"
+#    define USJ_USE_DRIVER usb_serial_jtag_vfs_use_driver
+#  else
+#    include "esp_vfs_dev.h"
+#    define USJ_USE_DRIVER esp_vfs_usb_serial_jtag_use_driver
+#  endif
+#else
+#  include "driver/uart.h"
+#  include "esp_vfs_dev.h"
+#endif
 
 static const char *TAG = "app";
 
@@ -21,8 +37,14 @@ static void console_init(void)
     setvbuf(stdin, NULL, _IONBF, 0);
     setvbuf(stdout, NULL, _IONBF, 0);
 
+#if defined(CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG)
+    usb_serial_jtag_driver_config_t jtag_cfg = USB_SERIAL_JTAG_DRIVER_CONFIG_DEFAULT();
+    usb_serial_jtag_driver_install(&jtag_cfg);
+    USJ_USE_DRIVER();
+#else
     uart_driver_install(CONFIG_ESP_CONSOLE_UART_NUM, 256, 0, 0, NULL, 0);
     esp_vfs_dev_uart_use_driver(CONFIG_ESP_CONSOLE_UART_NUM);
+#endif
 }
 
 /* Read one line from the console with local echo. Returns its length. */
