@@ -1,6 +1,8 @@
 #include "audio.h"
 #include "bsp_pins.h"
 
+#include <math.h>
+
 #include "driver/i2s_std.h"
 #include "freertos/FreeRTOS.h"
 #include "esp_log.h"
@@ -42,6 +44,28 @@ esp_err_t audio_init(void)
              BSP_SPK_BCK, BSP_SPK_LRCK, BSP_SPK_DIN, AUDIO_SAMPLE_RATE,
              esp_err_to_name(err));
     return err;
+}
+
+void audio_play_test_tone(void)
+{
+    const int freq = 440;       /* Hz */
+    const int dur_ms = 1500;
+    const int amp = 18000;      /* loud, but below 32767 clipping */
+    const int total = AUDIO_SAMPLE_RATE * dur_ms / 1000;
+
+    ESP_LOGI(TAG, "playing %dHz test tone for %dms", freq, dur_ms);
+    enum { CH = 256 };
+    int16_t buf[CH];
+    int i = 0;
+    while (i < total) {
+        int n = (total - i < CH) ? (total - i) : CH;
+        for (int j = 0; j < n; j++) {
+            float t = (float)(i + j) / AUDIO_SAMPLE_RATE;
+            buf[j] = (int16_t)(amp * sinf(2.0f * (float)M_PI * freq * t));
+        }
+        audio_play_mono16((const uint8_t *)buf, (size_t)n * 2);
+        i += n;
+    }
 }
 
 void audio_play_mono16(const uint8_t *data, size_t len)

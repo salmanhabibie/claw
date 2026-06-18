@@ -87,6 +87,9 @@ void app_main(void)
     /* Speaker (PCM5101). Non-fatal: the UI still works without audio. */
     if (audio_init() != ESP_OK) {
         ESP_LOGW(TAG, "audio init failed; voice output disabled");
+    } else {
+        /* Local diagnostic beep (no network) to test the speaker path. */
+        audio_play_test_tone();
     }
 
     s_talk_sem = xSemaphoreCreateBinary();
