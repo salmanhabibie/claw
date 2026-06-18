@@ -110,7 +110,7 @@ lv_display_t *bsp_display_init(esp_io_expander_handle_t expander)
             .x_max = BSP_LCD_H_RES,
             .y_max = BSP_LCD_V_RES,
             .rst_gpio_num = -1,   /* reset handled via the expander above */
-            .int_gpio_num = BSP_TP_INT,
+            .int_gpio_num = -1,   /* polling mode: lvgl_port reads over I2C on its timer */
             .levels = { .reset = 0, .interrupt = 0 },
             .flags = { .swap_xy = 0, .mirror_x = 0, .mirror_y = 0 },
         };

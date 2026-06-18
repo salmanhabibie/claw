@@ -2,16 +2,33 @@
 
 #include "lvgl.h"
 #include "esp_lvgl_port.h"
+#include "esp_log.h"
+
+static const char *TAG = "ui";
 
 static lv_obj_t *s_status;
 static lv_obj_t *s_response;
 static SemaphoreHandle_t s_talk_sem;
+
+/* Log every touch that reaches LVGL, so we can tell whether the touch panel is
+ * read at all and whether its coordinates line up with what is drawn. */
+static void screen_touch_log_cb(lv_event_t *e)
+{
+    (void)e;
+    lv_indev_t *indev = lv_indev_active();
+    if (indev != NULL) {
+        lv_point_t p;
+        lv_indev_get_point(indev, &p);
+        ESP_LOGI(TAG, "touch at x=%d y=%d", (int)p.x, (int)p.y);
+    }
+}
 
 /* Runs in the LVGL task when the TALK button is tapped. esp_lvgl_port uses a
  * recursive lock, so calling chat_ui_set_* (which locks) from here is fine. */
 static void talk_btn_cb(lv_event_t *e)
 {
     (void)e;
+    ESP_LOGI(TAG, "TALK button pressed");
     if (s_talk_sem != NULL) {
         xSemaphoreGive(s_talk_sem);
     }
@@ -26,6 +43,7 @@ void chat_ui_init(SemaphoreHandle_t talk_sem)
     lv_obj_t *scr = lv_screen_active();
     lv_obj_set_style_bg_color(scr, lv_color_hex(0x0d1117), 0);
     lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, 0);
+    lv_obj_add_event_cb(scr, screen_touch_log_cb, LV_EVENT_PRESSED, NULL);
 
     /* Status line */
     s_status = lv_label_create(scr);
