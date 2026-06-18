@@ -39,14 +39,13 @@ esp_err_t bsp_expander_init(esp_io_expander_handle_t *out_expander)
         return err;
     }
 
-    /* Drive P0..P3 as outputs (high). P0 is included because the EXIOn->Pn
-     * mapping is uncertain. P6/P7 are spare expander pins driven high in case
-     * one of them is the speaker amplifier enable (PA_EN). */
+    /* Drive only P0..P3 as outputs (high): touch/LCD resets + SD CS. Do NOT
+     * touch P4..P7 — on this board a spare expander pin is tied to power/reset
+     * control, and driving it causes a boot loop. */
     uint32_t mask = IO_EXPANDER_PIN_NUM_0 | BSP_EXIO_LCD_RST |
-                    BSP_EXIO_TP_RST | BSP_EXIO_SD_CS |
-                    IO_EXPANDER_PIN_NUM_6 | IO_EXPANDER_PIN_NUM_7;
+                    BSP_EXIO_TP_RST | BSP_EXIO_SD_CS;
     esp_io_expander_set_dir(*out_expander, mask, IO_EXPANDER_OUTPUT);
-    /* Idle high: resets de-asserted, SD card deselected, amp (maybe) enabled. */
+    /* Idle high: resets de-asserted, SD card deselected. */
     esp_io_expander_set_level(*out_expander, mask, 1);
     ESP_LOGI(TAG, "TCA9554 expander ready");
     return ESP_OK;
