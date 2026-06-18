@@ -74,5 +74,22 @@ esp_err_t wifi_connect(void)
         s_wifi_event_group, WIFI_CONNECTED_BIT | WIFI_FAIL_BIT,
         pdFALSE, pdFALSE, portMAX_DELAY);
 
-    return (bits & WIFI_CONNECTED_BIT) ? ESP_OK : ESP_FAIL;
+    if (!(bits & WIFI_CONNECTED_BIT)) {
+        return ESP_FAIL;
+    }
+
+    /* Some home routers run a flaky DNS resolver (we saw getaddrinfo() fail
+     * for api.elevenlabs.io). Override with public DNS so name resolution is
+     * reliable. The DHCP lease already set IP/gateway by now. */
+    esp_netif_t *netif = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
+    if (netif != NULL) {
+        esp_netif_dns_info_t main_dns = { .ip = { .type = ESP_IPADDR_TYPE_V4 } };
+        esp_netif_dns_info_t backup_dns = { .ip = { .type = ESP_IPADDR_TYPE_V4 } };
+        esp_netif_str_to_ip4("8.8.8.8", &main_dns.ip.u_addr.ip4);
+        esp_netif_str_to_ip4("1.1.1.1", &backup_dns.ip.u_addr.ip4);
+        esp_netif_set_dns_info(netif, ESP_NETIF_DNS_MAIN, &main_dns);
+        esp_netif_set_dns_info(netif, ESP_NETIF_DNS_BACKUP, &backup_dns);
+        ESP_LOGI(TAG, "DNS set to 8.8.8.8 / 1.1.1.1");
+    }
+    return ESP_OK;
 }

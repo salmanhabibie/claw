@@ -79,30 +79,44 @@ void tts_say(const char *text)
              "https://api.elevenlabs.io/v1/text-to-speech/%s?output_format=pcm_16000",
              CONFIG_ELEVENLABS_VOICE_ID);
 
+    esp_err_t err = ESP_FAIL;
+    int status = 0;
     tts_state_t st = {0};
-    esp_http_client_config_t config = {
-        .url = url,
-        .method = HTTP_METHOD_POST,
-        .event_handler = http_event,
-        .user_data = &st,
-        .crt_bundle_attach = esp_crt_bundle_attach,
-        .timeout_ms = 30000,
-        .buffer_size = 2048,
-        .buffer_size_tx = 1024,
-    };
-    esp_http_client_handle_t client = esp_http_client_init(&config);
-    esp_http_client_set_header(client, "xi-api-key", CONFIG_ELEVENLABS_API_KEY);
-    esp_http_client_set_header(client, "content-type", "application/json");
-    esp_http_client_set_header(client, "accept", "audio/pcm");
-    esp_http_client_set_post_field(client, body, strlen(body));
 
-    esp_err_t err = esp_http_client_perform(client);
-    int status = esp_http_client_get_status_code(client);
-    esp_http_client_cleanup(client);
+    /* Retry: DNS / TLS connect can fail transiently right after WiFi is up. */
+    for (int attempt = 1; attempt <= 3; attempt++) {
+        st = (tts_state_t){0};
+        esp_http_client_config_t config = {
+            .url = url,
+            .method = HTTP_METHOD_POST,
+            .event_handler = http_event,
+            .user_data = &st,
+            .crt_bundle_attach = esp_crt_bundle_attach,
+            .timeout_ms = 30000,
+            .buffer_size = 2048,
+            .buffer_size_tx = 1024,
+        };
+        esp_http_client_handle_t client = esp_http_client_init(&config);
+        esp_http_client_set_header(client, "xi-api-key", CONFIG_ELEVENLABS_API_KEY);
+        esp_http_client_set_header(client, "content-type", "application/json");
+        esp_http_client_set_header(client, "accept", "audio/pcm");
+        esp_http_client_set_post_field(client, body, strlen(body));
+
+        err = esp_http_client_perform(client);
+        status = esp_http_client_get_status_code(client);
+        esp_http_client_cleanup(client);
+
+        if (err == ESP_OK) {
+            break;   /* got a response (200 or an HTTP error) */
+        }
+        ESP_LOGW(TAG, "TTS attempt %d failed: %s; retrying...",
+                 attempt, esp_err_to_name(err));
+        vTaskDelay(pdMS_TO_TICKS(1000));
+    }
     free(body);
 
     if (err != ESP_OK) {
-        ESP_LOGE(TAG, "TTS request failed: %s", esp_err_to_name(err));
+        ESP_LOGE(TAG, "TTS request failed after retries: %s", esp_err_to_name(err));
     } else if (status != 200) {
         ESP_LOGW(TAG, "TTS HTTP %d (check API key / voice ID)", status);
     } else {
