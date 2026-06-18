@@ -33,10 +33,11 @@
 #define BSP_EXIO_LCD_RST   IO_EXPANDER_PIN_NUM_2   /* EXIO2 */
 #define BSP_EXIO_SD_CS     IO_EXPANDER_PIN_NUM_3   /* EXIO3 */
 
-/* ---- Speaker: PCM5101 DAC (I2S out) — for the later voice phase ---- */
+/* ---- Speaker: PCM5101 DAC (I2S out). BCLK=48 per the working XiaoZhi config
+ * for this board (the wiki table's 39 gave no sound). ---- */
 #define BSP_SPK_DIN        47
 #define BSP_SPK_LRCK       38
-#define BSP_SPK_BCK        39
+#define BSP_SPK_BCK        48
 
 /* ---- Microphone (I2S in) — for the later voice phase ---- */
 #define BSP_MIC_WS         2
