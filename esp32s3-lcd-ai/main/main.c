@@ -46,6 +46,15 @@ static void voice_task(void *arg)
     }
 }
 
+/* One-shot local speaker test (no network), in its own task to avoid using the
+ * smaller main-task stack. */
+static void tone_task(void *arg)
+{
+    (void)arg;
+    audio_play_test_tone();
+    vTaskDelete(NULL);
+}
+
 /* One-shot speaker check on boot, in its own task for the TLS stack. */
 static void speaker_test_task(void *arg)
 {
@@ -88,8 +97,8 @@ void app_main(void)
     if (audio_init() != ESP_OK) {
         ESP_LOGW(TAG, "audio init failed; voice output disabled");
     } else {
-        /* Local diagnostic beep (no network) to test the speaker path. */
-        audio_play_test_tone();
+        /* Local diagnostic beep (no network) in its own task. */
+        xTaskCreate(tone_task, "tone", 8192, NULL, 5, NULL);
     }
 
     s_talk_sem = xSemaphoreCreateBinary();
