@@ -10,7 +10,7 @@
 static const char *TAG = "audio";
 static i2s_chan_handle_t s_tx;
 
-#define AUDIO_SAMPLE_RATE 16000
+#define AUDIO_SAMPLE_RATE 24000
 
 esp_err_t audio_init(void)
 {

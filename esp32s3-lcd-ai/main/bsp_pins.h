@@ -33,15 +33,17 @@
 #define BSP_EXIO_LCD_RST   IO_EXPANDER_PIN_NUM_2   /* EXIO2 */
 #define BSP_EXIO_SD_CS     IO_EXPANDER_PIN_NUM_3   /* EXIO3 */
 
-/* ---- Speaker: PCM5101 DAC (I2S out) — for the later voice phase ---- */
+/* ---- Speaker: PCM5101 DAC (I2S out). Pins from the working XiaoZhi board
+ * config for this board. No power-amplifier enable pin exists (amp is
+ * always on), and the output runs at 24 kHz. ---- */
 #define BSP_SPK_DIN        47
 #define BSP_SPK_LRCK       38
-#define BSP_SPK_BCK        39
+#define BSP_SPK_BCK        48
 
-/* ---- Microphone (I2S in) — for the later voice phase ---- */
+/* ---- Microphone (I2S in) — for the later voice phase (XiaoZhi pins) ---- */
 #define BSP_MIC_WS         2
 #define BSP_MIC_SCK        15
-#define BSP_MIC_SD         6
+#define BSP_MIC_SD         39
 
 /* ---- microSD card (SPI). CS is on the expander (EXIO3). ---- */
 #define BSP_SD_MISO        16
