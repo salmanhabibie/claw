@@ -167,19 +167,45 @@ static bool ha_ready(void)
     return strlen(CONFIG_HA_BASE_URL) > 0 && strlen(CONFIG_HA_TOKEN) > 0;
 }
 
-/* List controllable entities + sensors using HA's template API, which renders
- * a compact text list server-side (no huge JSON to parse on the device). */
+/* List entities using HA's template API, which renders a compact text list
+ * server-side (no huge JSON to parse on the device). By default it lists only
+ * *controllable* appliances; sensors are excluded so they don't crowd out and
+ * truncate the device list. Pass domain="sensor" (or any domain) to list that
+ * domain specifically. */
 static char *tool_ha_list_entities(const cJSON *input)
 {
-    (void)input;
     if (!ha_ready()) return strdup("Home Assistant belum dikonfigurasi di perangkat.");
 
-    const char *tmpl =
-        "{% for s in states if s.domain in "
-        "['light','switch','fan','climate','cover','lock','media_player',"
-        "'sensor','binary_sensor','input_boolean','scene','vacuum','humidifier'] %}"
-        "{{ s.entity_id }} = {{ s.name }} = {{ s.state }}\n"
-        "{% endfor %}";
+    /* Optional domain filter, sanitised to a safe identifier so it can't
+     * break the Jinja template. */
+    const char *dom = cJSON_GetStringValue(cJSON_GetObjectItem(input, "domain"));
+    char domain[24] = {0};
+    if (dom) {
+        size_t i = 0;
+        for (const char *p = dom; *p && i < sizeof(domain) - 1; p++) {
+            char ch = (char)tolower((unsigned char)*p);
+            if ((ch >= 'a' && ch <= 'z') || ch == '_') domain[i++] = ch;
+        }
+        domain[i] = '\0';
+    }
+
+    char dyn[256];
+    const char *tmpl;
+    if (domain[0]) {
+        snprintf(dyn, sizeof(dyn),
+                 "{%% for s in states.%s %%}"
+                 "{{ s.entity_id }} = {{ s.name }} = {{ s.state }}\n"
+                 "{%% endfor %%}", domain);
+        tmpl = dyn;
+    } else {
+        tmpl =
+            "{% for s in states if s.domain in "
+            "['light','switch','fan','climate','cover','lock','media_player',"
+            "'vacuum','humidifier','water_heater','valve','siren','scene',"
+            "'input_boolean'] %}"
+            "{{ s.entity_id }} = {{ s.name }} = {{ s.state }}\n"
+            "{% endfor %}";
+    }
 
     cJSON *o = cJSON_CreateObject();
     cJSON_AddStringToObject(o, "template", tmpl);
@@ -196,11 +222,11 @@ static char *tool_ha_list_entities(const cJSON *input)
         free(resp);
         return strdup("Gagal mengambil daftar device dari Home Assistant.");
     }
-    /* Cap the size we hand back to Claude. */
-    const size_t MAXLEN = 3500;
+    /* Cap the size we hand back to Claude (token budget + device memory). */
+    const size_t MAXLEN = 6000;
     if (strlen(resp) > MAXLEN) {
-        resp[MAXLEN] = '\0';
-        strcpy(resp + MAXLEN - 24, "\n...(daftar dipotong)\n");
+        strcpy(resp + MAXLEN - 40,
+               "\n...(daftar dipotong, minta per domain)\n");
     }
     ESP_LOGI(TAG, "ha entities (%u bytes)", (unsigned)strlen(resp));
     return resp;

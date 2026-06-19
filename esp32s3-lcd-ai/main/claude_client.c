@@ -25,7 +25,8 @@ static const char *SYSTEM_PROMPT =
     "Kamu juga bisa mengendalikan smart home lewat Home Assistant: bila pengguna "
     "minta menyalakan/mematikan/mengatur perangkat (lampu, AC, kipas, saklar) atau "
     "menanyakan status sensor, panggil ha_list_entities dulu bila belum tahu "
-    "entity_id-nya, lalu ha_call_service untuk aksi atau ha_get_state untuk membaca.";
+    "entity_id-nya; untuk sensor panggil ha_list_entities dengan domain=sensor. "
+    "Lalu ha_call_service untuk aksi atau ha_get_state untuk membaca.";
 
 /* Tool definitions sent to Claude on every request. */
 static const char *TOOLS_JSON =
@@ -43,8 +44,9 @@ static const char *TOOLS_JSON =
     "\"required\":[\"coin\"]}"
 "},{"
   "\"name\":\"ha_list_entities\","
-  "\"description\":\"Daftar perangkat Home Assistant (entity_id, nama, status). Panggil ini saat belum tahu entity_id perangkat yang dimaksud pengguna.\","
-  "\"input_schema\":{\"type\":\"object\",\"properties\":{}}"
+  "\"description\":\"Daftar perangkat Home Assistant yang bisa dikontrol (lampu, saklar, AC, kipas, tirai, dll) beserta entity_id, nama, dan status. Panggil saat belum tahu entity_id. Default TIDAK menampilkan sensor agar daftar peralatan tidak terpotong; untuk sensor atau domain lain, isi parameter domain, mis. domain=sensor.\","
+  "\"input_schema\":{\"type\":\"object\",\"properties\":{"
+    "\"domain\":{\"type\":\"string\",\"description\":\"Opsional. Batasi ke satu domain saja, mis. sensor, binary_sensor, light, switch. Kosongkan untuk semua peralatan yang bisa dikontrol.\"}}}"
 "},{"
   "\"name\":\"ha_call_service\","
   "\"description\":\"Jalankan layanan Home Assistant untuk mengendalikan perangkat. Contoh: nyalakan lampu -> domain=light, service=turn_on, entity_id=light.ruang_tamu. Atur kecerahan/suhu lewat data, mis. {\\\"brightness_pct\\\":30} atau {\\\"temperature\\\":24}.\","
