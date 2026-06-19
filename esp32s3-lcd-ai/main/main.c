@@ -2,6 +2,7 @@
 #include <string.h>
 #include <stdbool.h>
 #include <stdlib.h>
+#include <ctype.h>
 #include <time.h>
 
 #include "freertos/FreeRTOS.h"
@@ -43,6 +44,32 @@ static void halt(const char *why)
         ESP_LOGE(TAG, "HALT (init failed): %s", why);
         vTaskDelay(pdMS_TO_TICKS(3000));
     }
+}
+
+/* True if a short utterance is a "stop talking" command, so the user can end
+ * the conversation by voice. Only short phrases match, to avoid false hits in
+ * normal sentences that happen to contain one of these words. */
+static bool is_stop_command(const char *text)
+{
+    if (text == NULL) return false;
+    size_t len = strlen(text);
+    if (len == 0 || len > 28) return false;
+
+    char low[32];
+    size_t j = 0;
+    for (size_t i = 0; i < len && j < sizeof(low) - 1; i++) {
+        unsigned char c = (unsigned char)text[i];
+        low[j++] = isalpha(c) ? (char)tolower(c) : ' ';
+    }
+    low[j] = '\0';
+
+    static const char *kw[] = {
+        "diam", "stop", "berhenti", "cukup", "selesai", "udahan", NULL
+    };
+    for (int k = 0; kw[k] != NULL; k++) {
+        if (strstr(low, kw[k]) != NULL) return true;
+    }
+    return false;
 }
 
 /* Block until a conversation should start: either the wake word is heard
@@ -141,6 +168,12 @@ static void voice_task(void *arg)
                 break;   /* no speech -> end the conversation */
             }
             chat_ui_set_response(text);
+
+            if (is_stop_command(text)) {
+                ESP_LOGI(TAG, "stop command: '%s'", text);
+                free(text);
+                break;   /* user said "diam"/"stop" -> end the conversation */
+            }
 
             chat_ui_set_status("Berpikir...");
             char *reply = claude_ask(text);
