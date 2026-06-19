@@ -9,6 +9,7 @@ idf_component_register(
         "audio.c"
         "tts.c"
         "stt.c"
+        "tools.c"
     INCLUDE_DIRS "."
     REQUIRES
         # networking + Claude API
