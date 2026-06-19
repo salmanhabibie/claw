@@ -76,7 +76,7 @@ menu "AI Assistant Configuration"
 
     config VEE_WAKE_WORD
         bool "Enable hands-free wake word (esp-sr WakeNet)"
-        default y
+        default n
         help
             Listen continuously for a wake phrase (e.g. "Alexa") so a
             conversation can start without tapping. Requires the esp-sr

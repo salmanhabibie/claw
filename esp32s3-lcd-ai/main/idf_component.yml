@@ -10,6 +10,8 @@ dependencies:
   espressif/esp_lcd_touch_spd2010: "^1.0.0"
   # TCA9554 I2C GPIO expander (drives LCD/touch reset + SD CS)
   espressif/esp_io_expander_tca9554: "^1.0.1"
-  # On-device wake word (WakeNet). Large component; pulls model data and is
-  # flashed into the 'model' partition (see partitions.csv).
-  espressif/esp-sr: "^1.0"
+  # NOTE: the on-device wake word (espressif/esp-sr) is intentionally NOT a
+  # default dependency: it's a very large download that slows every build.
+  # To enable hands-free wake word, uncomment the line below, add the 'model'
+  # partition back to partitions.csv, and set CONFIG_VEE_WAKE_WORD=y.
+  #   espressif/esp-sr: "^1.0"

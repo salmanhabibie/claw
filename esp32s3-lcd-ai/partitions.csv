@@ -3,6 +3,5 @@
 nvs,      data, nvs,     0x9000,   0x6000
 phy_init, data, phy,     0xf000,   0x1000
 factory,  app,  factory, 0x10000,  0x600000
-# esp-sr model data (WakeNet, flashed by the esp-sr build). 5 MB leaves room
-# even if a MultiNet command model is left enabled; trim if you need space.
-model,    data, spiffs,  ,         0x500000
+# For the wake word, add an esp-sr model partition here, e.g.:
+#   model,  data, spiffs,  ,         0x500000
