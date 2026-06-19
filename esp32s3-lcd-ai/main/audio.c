@@ -10,7 +10,9 @@
 static const char *TAG = "audio";
 static i2s_chan_handle_t s_tx;
 
-#define AUDIO_SAMPLE_RATE 16000
+/* ElevenLabs is asked for pcm_24000, so the I2S output clock runs at 24 kHz.
+ * This matches the Waveshare XiaoZhi config for the 1.46/1.46B board. */
+#define AUDIO_SAMPLE_RATE 24000
 
 esp_err_t audio_init(void)
 {
@@ -21,10 +23,27 @@ esp_err_t audio_init(void)
         return err;
     }
 
+    /* The PCM5101 on this board is wired for a 32-bit, mono, left-slot frame
+     * (verified from the XiaoZhi NoAudioCodecSimplex config). 16-bit PCM is
+     * placed in the upper bits of each 32-bit word in audio_play_mono16(). */
     i2s_std_config_t std_cfg = {
-        .clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(AUDIO_SAMPLE_RATE),
-        .slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(
-            I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_STEREO),
+        .clk_cfg = {
+            .sample_rate_hz = AUDIO_SAMPLE_RATE,
+            .clk_src = I2S_CLK_SRC_DEFAULT,
+            .mclk_multiple = I2S_MCLK_MULTIPLE_256,
+        },
+        .slot_cfg = {
+            .data_bit_width = I2S_DATA_BIT_WIDTH_32BIT,
+            .slot_bit_width = I2S_SLOT_BIT_WIDTH_AUTO,
+            .slot_mode = I2S_SLOT_MODE_MONO,
+            .slot_mask = I2S_STD_SLOT_LEFT,
+            .ws_width = I2S_DATA_BIT_WIDTH_32BIT,
+            .ws_pol = false,
+            .bit_shift = true,
+            .left_align = true,
+            .big_endian = false,
+            .bit_order_lsb = false,
+        },
         .gpio_cfg = {
             .mclk = I2S_GPIO_UNUSED,   /* PCM5101 runs off its internal PLL */
             .bclk = BSP_SPK_BCK,
@@ -40,7 +59,7 @@ esp_err_t audio_init(void)
         return err;
     }
     err = i2s_channel_enable(s_tx);
-    ESP_LOGI(TAG, "I2S out BCK=%d WS=%d DOUT=%d @%dHz: %s",
+    ESP_LOGI(TAG, "I2S out BCK=%d WS=%d DOUT=%d @%dHz (32-bit mono/left): %s",
              BSP_SPK_BCK, BSP_SPK_LRCK, BSP_SPK_DIN, AUDIO_SAMPLE_RATE,
              esp_err_to_name(err));
     return err;
@@ -76,17 +95,18 @@ void audio_play_mono16(const uint8_t *data, size_t len)
     const int16_t *mono = (const int16_t *)data;
     size_t nsamp = len / 2;
 
+    /* Each 16-bit sample is left-justified into a 32-bit word (sample << 16),
+     * which is what the 32-bit-slot I2S frame on this board expects. */
     enum { BLK = 256 };
-    int16_t stereo[BLK * 2];
+    int32_t out[BLK];
     size_t i = 0;
     while (i < nsamp) {
         size_t n = (nsamp - i < BLK) ? (nsamp - i) : BLK;
         for (size_t j = 0; j < n; j++) {
-            stereo[j * 2]     = mono[i + j];
-            stereo[j * 2 + 1] = mono[i + j];
+            out[j] = (int32_t)mono[i + j] << 16;
         }
         size_t written = 0;
-        i2s_channel_write(s_tx, stereo, n * 2 * sizeof(int16_t), &written, portMAX_DELAY);
+        i2s_channel_write(s_tx, out, n * sizeof(int32_t), &written, portMAX_DELAY);
         i += n;
     }
 }

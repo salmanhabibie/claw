@@ -8,6 +8,10 @@
  * esp_io_expander_tca9554 (1.0.x) takes an i2c_port_t, not a new bus handle. */
 #define BSP_I2C_PORT  I2C_NUM_0
 
+/* Latch board power / enable the speaker amplifier (GPIO7 HIGH). Call this
+ * first thing in app_main, before anything else. */
+void bsp_power_on(void);
+
 /* Bring up the shared I2C master bus (GPIO10/11, legacy driver). */
 esp_err_t bsp_i2c_init(void);
 

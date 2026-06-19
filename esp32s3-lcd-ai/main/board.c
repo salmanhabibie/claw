@@ -10,6 +10,14 @@
 
 static const char *TAG = "board";
 
+void bsp_power_on(void)
+{
+    gpio_reset_pin(BSP_PWR_CONTROL);
+    gpio_set_direction(BSP_PWR_CONTROL, GPIO_MODE_OUTPUT);
+    gpio_set_level(BSP_PWR_CONTROL, 1);   /* latch power / enable speaker amp */
+    ESP_LOGI(TAG, "power control GPIO%d set HIGH", BSP_PWR_CONTROL);
+}
+
 esp_err_t bsp_i2c_init(void)
 {
     const i2c_config_t conf = {

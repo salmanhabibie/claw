@@ -58,6 +58,9 @@ static void speaker_test_task(void *arg)
 
 void app_main(void)
 {
+    /* Latch board power / enable the speaker amplifier first (GPIO7 HIGH). */
+    bsp_power_on();
+
     /* Let the native USB Serial/JTAG re-enumerate so the monitor can reattach. */
     vTaskDelay(pdMS_TO_TICKS(2000));
     ESP_LOGI(TAG, "=== ESP32-S3-Touch-LCD-1.46B AI assistant starting ===");
@@ -87,6 +90,11 @@ void app_main(void)
     /* Speaker (PCM5101). Non-fatal: the UI still works without audio. */
     if (audio_init() != ESP_OK) {
         ESP_LOGW(TAG, "audio init failed; voice output disabled");
+    } else {
+        /* Local 440 Hz beep: no network needed. If you hear this, the speaker
+         * hardware path (I2S -> DAC -> amp) works, independent of WiFi/TTS. */
+        ESP_LOGI(TAG, "playing local speaker test tone");
+        audio_play_test_tone();
     }
 
     s_talk_sem = xSemaphoreCreateBinary();

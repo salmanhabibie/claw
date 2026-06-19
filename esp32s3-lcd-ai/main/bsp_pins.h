@@ -33,15 +33,23 @@
 #define BSP_EXIO_LCD_RST   IO_EXPANDER_PIN_NUM_2   /* EXIO2 */
 #define BSP_EXIO_SD_CS     IO_EXPANDER_PIN_NUM_3   /* EXIO3 */
 
-/* ---- Speaker: PCM5101 DAC (I2S out) — for the later voice phase ---- */
-#define BSP_SPK_DIN        47
-#define BSP_SPK_LRCK       38
-#define BSP_SPK_BCK        39
+/* ---- Power latch / amplifier enable ----
+ * GPIO7 is the board's power-control line; it MUST be driven HIGH early or the
+ * board powers down / the speaker amplifier stays disabled. (GPIO6 is the
+ * physical power button.) Verified against Waveshare's XiaoZhi board config. */
+#define BSP_PWR_CONTROL    7
+#define BSP_PWR_BUTTON     6
 
-/* ---- Microphone (I2S in) — for the later voice phase ---- */
+/* ---- Speaker: PCM5101 DAC (I2S out). Pins verified from XiaoZhi 1.46 config.
+ * NOTE: BCLK is GPIO48 (an earlier guess of 39 was actually the MIC data pin). */
+#define BSP_SPK_DIN        47   /* DOUT */
+#define BSP_SPK_LRCK       38   /* WS   */
+#define BSP_SPK_BCK        48   /* BCLK */
+
+/* ---- Microphone (I2S in). DIN is GPIO39 (verified from XiaoZhi 1.46). ---- */
 #define BSP_MIC_WS         2
 #define BSP_MIC_SCK        15
-#define BSP_MIC_SD         6
+#define BSP_MIC_SD         39   /* DIN */
 
 /* ---- microSD card (SPI). CS is on the expander (EXIO3). ---- */
 #define BSP_SD_MISO        16

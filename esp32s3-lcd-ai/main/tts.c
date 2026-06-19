@@ -12,7 +12,7 @@
 
 static const char *TAG = "tts";
 
-/* ElevenLabs streams raw 16-bit mono PCM (output_format=pcm_16000). A chunk
+/* ElevenLabs streams raw 16-bit mono PCM (output_format=pcm_24000). A chunk
  * boundary can split a 16-bit sample, so carry the odd leftover byte over. */
 typedef struct {
     uint8_t carry;
@@ -76,7 +76,7 @@ void tts_say(const char *text)
 
     char url[256];
     snprintf(url, sizeof(url),
-             "https://api.elevenlabs.io/v1/text-to-speech/%s?output_format=pcm_16000",
+             "https://api.elevenlabs.io/v1/text-to-speech/%s?output_format=pcm_24000",
              CONFIG_ELEVENLABS_VOICE_ID);
 
     esp_err_t err = ESP_FAIL;
@@ -121,7 +121,7 @@ void tts_say(const char *text)
         ESP_LOGW(TAG, "TTS HTTP %d (check API key / voice ID)", status);
     } else {
         ESP_LOGI(TAG, "TTS done: HTTP 200, played %u PCM bytes (%.1f s of audio)",
-                 (unsigned)st.played, st.played / 2.0f / 16000.0f);
+                 (unsigned)st.played, st.played / 2.0f / 24000.0f);
         if (st.played == 0) {
             ESP_LOGW(TAG, "got 0 audio bytes - check voice ID / output_format");
         }
