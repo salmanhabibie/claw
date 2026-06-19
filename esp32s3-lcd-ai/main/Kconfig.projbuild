@@ -37,6 +37,32 @@ menu "AI Assistant Configuration"
             Upper bound on the length of Claude's reply. Smaller values keep
             the on-device response buffer small.
 
+    choice
+        prompt "LLM (brain) provider"
+        default LLM_PROVIDER_ANTHROPIC
+        help
+            Which API generates the assistant's replies and tool calls.
+
+        config LLM_PROVIDER_ANTHROPIC
+            bool "Anthropic (Claude)"
+        config LLM_PROVIDER_OPENAI
+            bool "OpenAI-compatible (OpenAI / Groq / etc.)"
+    endchoice
+
+    config LLM_OPENAI_URL
+        string "OpenAI-compatible chat completions URL"
+        default "https://api.openai.com/v1/chat/completions"
+        help
+            Full chat-completions URL. OpenAI default shown. Groq:
+            https://api.groq.com/openai/v1/chat/completions
+
+    config LLM_OPENAI_MODEL
+        string "OpenAI-compatible chat model"
+        default "gpt-4o-mini"
+        help
+            Chat model. OpenAI: gpt-4o-mini (cheap/fast) or gpt-4o (smarter).
+            Reuses the OpenAI-compatible API key set under the STT section.
+
     config ELEVENLABS_API_KEY
         string "ElevenLabs API key"
         default ""

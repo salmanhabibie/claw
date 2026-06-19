@@ -28,7 +28,8 @@ static const char *SYSTEM_PROMPT =
     "entity_id-nya; untuk sensor panggil ha_list_entities dengan domain=sensor. "
     "Lalu ha_call_service untuk aksi atau ha_get_state untuk membaca.";
 
-/* Tool definitions sent to Claude on every request. */
+/* Tool definitions, in Anthropic shape (name/description/input_schema). The
+ * OpenAI path converts these to its function-tool shape at request time. */
 static const char *TOOLS_JSON =
 "[{"
   "\"name\":\"get_weather\","
@@ -85,12 +86,17 @@ static esp_err_t http_event_handler(esp_http_client_event_t *evt)
     return ESP_OK;
 }
 
-/* POST a request body, return the response body as a heap string (caller frees). */
+/* POST a request body, return the response body as a heap string (caller frees).
+ * URL and auth headers depend on the selected LLM provider. */
 static char *do_request(const char *body)
 {
     response_t resp = {0};
     esp_http_client_config_t config = {
+#if CONFIG_LLM_PROVIDER_OPENAI
+        .url = CONFIG_LLM_OPENAI_URL,
+#else
         .url = ANTHROPIC_URL,
+#endif
         .method = HTTP_METHOD_POST,
         .event_handler = http_event_handler,
         .user_data = &resp,
@@ -101,13 +107,25 @@ static char *do_request(const char *body)
     };
     esp_http_client_handle_t client = esp_http_client_init(&config);
     esp_http_client_set_header(client, "content-type", "application/json");
+#if CONFIG_LLM_PROVIDER_OPENAI
+    char *auth = malloc(strlen(CONFIG_OPENAI_API_KEY) + 8);
+    if (auth != NULL) {
+        snprintf(auth, strlen(CONFIG_OPENAI_API_KEY) + 8, "Bearer %s",
+                 CONFIG_OPENAI_API_KEY);
+        esp_http_client_set_header(client, "Authorization", auth);
+    }
+#else
     esp_http_client_set_header(client, "x-api-key", CONFIG_CLAUDE_API_KEY);
     esp_http_client_set_header(client, "anthropic-version", "2023-06-01");
+#endif
     esp_http_client_set_post_field(client, body, strlen(body));
 
     esp_err_t err = esp_http_client_perform(client);
     int status = esp_http_client_get_status_code(client);
     esp_http_client_cleanup(client);
+#if CONFIG_LLM_PROVIDER_OPENAI
+    free(auth);
+#endif
 
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "HTTP request failed: %s", esp_err_to_name(err));
@@ -119,6 +137,169 @@ static char *do_request(const char *body)
     }
     return resp.buf;
 }
+
+/* ---- conversation memory (shared; {role,content} works for both APIs) ---- */
+
+#define MAX_HISTORY_MSGS 8     /* 4 exchanges; must stay even (user/assistant) */
+static cJSON *s_history;
+
+static void history_add(const char *role, const char *content)
+{
+    cJSON *m = cJSON_CreateObject();
+    cJSON_AddStringToObject(m, "role", role);
+    cJSON_AddStringToObject(m, "content", content);
+    cJSON_AddItemToArray(s_history, m);
+}
+
+static void history_trim(void)
+{
+    while (cJSON_GetArraySize(s_history) > MAX_HISTORY_MSGS) {
+        cJSON_DeleteItemFromArray(s_history, 0);
+        cJSON_DeleteItemFromArray(s_history, 0);
+    }
+}
+
+#if CONFIG_LLM_PROVIDER_OPENAI
+/* ============================ OpenAI-compatible ============================ */
+
+/* Convert the Anthropic-shape TOOLS_JSON into OpenAI function tools. */
+static cJSON *build_openai_tools(void)
+{
+    cJSON *src = cJSON_Parse(TOOLS_JSON);
+    if (src == NULL) return NULL;
+    cJSON *out = cJSON_CreateArray();
+    cJSON *t;
+    cJSON_ArrayForEach(t, src) {
+        cJSON *name   = cJSON_GetObjectItem(t, "name");
+        cJSON *desc   = cJSON_GetObjectItem(t, "description");
+        cJSON *schema = cJSON_GetObjectItem(t, "input_schema");
+        if (!cJSON_IsString(name)) continue;
+        cJSON *fn = cJSON_CreateObject();
+        cJSON_AddStringToObject(fn, "name", name->valuestring);
+        if (cJSON_IsString(desc))
+            cJSON_AddStringToObject(fn, "description", desc->valuestring);
+        if (schema)
+            cJSON_AddItemToObject(fn, "parameters", cJSON_Duplicate(schema, true));
+        cJSON *wrap = cJSON_CreateObject();
+        cJSON_AddStringToObject(wrap, "type", "function");
+        cJSON_AddItemToObject(wrap, "function", fn);
+        cJSON_AddItemToArray(out, wrap);
+    }
+    cJSON_Delete(src);
+    return out;
+}
+
+static char *build_body(const cJSON *messages)
+{
+    cJSON *root = cJSON_CreateObject();
+    if (root == NULL) return NULL;
+    cJSON_AddStringToObject(root, "model", CONFIG_LLM_OPENAI_MODEL);
+    cJSON_AddNumberToObject(root, "max_tokens", CONFIG_CLAUDE_MAX_TOKENS);
+    cJSON_AddItemToObject(root, "messages", cJSON_Duplicate(messages, true));
+    cJSON *tools = build_openai_tools();
+    if (tools) cJSON_AddItemToObject(root, "tools", tools);
+    char *body = cJSON_PrintUnformatted(root);
+    cJSON_Delete(root);
+    return body;
+}
+
+char *claude_ask(const char *prompt)
+{
+    if (s_history == NULL) s_history = cJSON_CreateArray();
+
+    /* messages = system + remembered turns + new user turn. */
+    cJSON *messages = cJSON_CreateArray();
+    cJSON *sys = cJSON_CreateObject();
+    cJSON_AddStringToObject(sys, "role", "system");
+    cJSON_AddStringToObject(sys, "content", SYSTEM_PROMPT);
+    cJSON_AddItemToArray(messages, sys);
+    cJSON *h;
+    cJSON_ArrayForEach(h, s_history) {
+        cJSON_AddItemToArray(messages, cJSON_Duplicate(h, true));
+    }
+    cJSON *um = cJSON_CreateObject();
+    cJSON_AddStringToObject(um, "role", "user");
+    cJSON_AddStringToObject(um, "content", prompt);
+    cJSON_AddItemToArray(messages, um);
+
+    char *result = NULL;
+
+    for (int iter = 0; iter < 6 && result == NULL; iter++) {
+        char *body = build_body(messages);
+        if (body == NULL) break;
+        char *resp = do_request(body);
+        free(body);
+        if (resp == NULL) break;
+
+        cJSON *root = cJSON_Parse(resp);
+        free(resp);
+        if (root == NULL) { ESP_LOGE(TAG, "bad response JSON"); break; }
+
+        cJSON *choices = cJSON_GetObjectItem(root, "choices");
+        cJSON *first = cJSON_IsArray(choices) ? cJSON_GetArrayItem(choices, 0) : NULL;
+        cJSON *msg = first ? cJSON_GetObjectItem(first, "message") : NULL;
+        if (msg == NULL) {
+            cJSON *error = cJSON_GetObjectItem(root, "error");
+            cJSON *emsg = error ? cJSON_GetObjectItem(error, "message") : NULL;
+            if (cJSON_IsString(emsg)) result = strdup(emsg->valuestring);
+            cJSON_Delete(root);
+            break;
+        }
+
+        cJSON *tool_calls = cJSON_GetObjectItem(msg, "tool_calls");
+        if (cJSON_IsArray(tool_calls) && cJSON_GetArraySize(tool_calls) > 0) {
+            /* Echo a clean assistant turn (content + tool_calls) back. */
+            cJSON *am = cJSON_CreateObject();
+            cJSON_AddStringToObject(am, "role", "assistant");
+            cJSON *content = cJSON_GetObjectItem(msg, "content");
+            if (cJSON_IsString(content))
+                cJSON_AddStringToObject(am, "content", content->valuestring);
+            else
+                cJSON_AddNullToObject(am, "content");
+            cJSON_AddItemToObject(am, "tool_calls", cJSON_Duplicate(tool_calls, true));
+            cJSON_AddItemToArray(messages, am);
+
+            /* Run each requested tool and append its result message. */
+            cJSON *tc;
+            cJSON_ArrayForEach(tc, tool_calls) {
+                const char *id = cJSON_GetStringValue(cJSON_GetObjectItem(tc, "id"));
+                cJSON *fn = cJSON_GetObjectItem(tc, "function");
+                const char *name = fn ? cJSON_GetStringValue(cJSON_GetObjectItem(fn, "name")) : NULL;
+                const char *args = fn ? cJSON_GetStringValue(cJSON_GetObjectItem(fn, "arguments")) : NULL;
+                ESP_LOGI(TAG, "tool_call: %s", name ? name : "(null)");
+
+                cJSON *input = (args && args[0]) ? cJSON_Parse(args) : NULL;
+                char *tres = tool_execute(name, input);
+                cJSON_Delete(input);
+
+                cJSON *trm = cJSON_CreateObject();
+                cJSON_AddStringToObject(trm, "role", "tool");
+                cJSON_AddStringToObject(trm, "tool_call_id", id ? id : "");
+                cJSON_AddStringToObject(trm, "content", tres ? tres : "error");
+                cJSON_AddItemToArray(messages, trm);
+                free(tres);
+            }
+            cJSON_Delete(root);
+            continue;   /* ask again with tool results */
+        }
+
+        cJSON *content = cJSON_GetObjectItem(msg, "content");
+        result = strdup(cJSON_IsString(content) ? content->valuestring : "");
+        cJSON_Delete(root);
+        break;
+    }
+
+    if (result != NULL) {
+        history_add("user", prompt);
+        history_add("assistant", result);
+        history_trim();
+    }
+    cJSON_Delete(messages);
+    return result;
+}
+
+#else
+/* ============================== Anthropic ================================== */
 
 /* Concatenate every text block in a content array into one heap string. */
 static char *concat_text(const cJSON *content)
@@ -147,7 +328,6 @@ static char *concat_text(const cJSON *content)
     return out;
 }
 
-/* Build the request body for one round, embedding the running message list. */
 static char *build_body(const cJSON *messages)
 {
     cJSON *root = cJSON_CreateObject();
@@ -163,35 +343,10 @@ static char *build_body(const cJSON *messages)
     return body;
 }
 
-/* Clean conversation memory: only finished user/assistant text turns (no tool
- * intermediates), so it stays valid and easy to trim. Kept across calls. */
-#define MAX_HISTORY_MSGS 8     /* 4 exchanges; must stay even (user/assistant) */
-static cJSON *s_history;
-
-static void history_add(const char *role, const char *content)
-{
-    cJSON *m = cJSON_CreateObject();
-    cJSON_AddStringToObject(m, "role", role);
-    cJSON_AddStringToObject(m, "content", content);
-    cJSON_AddItemToArray(s_history, m);
-}
-
-static void history_trim(void)
-{
-    /* Drop whole exchanges from the front so it still starts with a user turn. */
-    while (cJSON_GetArraySize(s_history) > MAX_HISTORY_MSGS) {
-        cJSON_DeleteItemFromArray(s_history, 0);
-        cJSON_DeleteItemFromArray(s_history, 0);
-    }
-}
-
 char *claude_ask(const char *prompt)
 {
-    if (s_history == NULL) {
-        s_history = cJSON_CreateArray();
-    }
+    if (s_history == NULL) s_history = cJSON_CreateArray();
 
-    /* Working list = remembered turns + this new user turn. */
     cJSON *messages = cJSON_Duplicate(s_history, true);
     cJSON *um = cJSON_CreateObject();
     cJSON_AddStringToObject(um, "role", "user");
@@ -200,8 +355,6 @@ char *claude_ask(const char *prompt)
 
     char *result = NULL;
 
-    /* Tool-use loop: Claude may ask to call a tool; run it, feed the result
-     * back, and ask again. Cap the iterations so we always terminate. */
     for (int iter = 0; iter < 6 && result == NULL; iter++) {
         char *body = build_body(messages);
         if (body == NULL) break;
@@ -211,10 +364,7 @@ char *claude_ask(const char *prompt)
 
         cJSON *rroot = cJSON_Parse(resp);
         free(resp);
-        if (rroot == NULL) {
-            ESP_LOGE(TAG, "failed to parse response JSON");
-            break;
-        }
+        if (rroot == NULL) { ESP_LOGE(TAG, "failed to parse response JSON"); break; }
 
         cJSON *content = cJSON_GetObjectItem(rroot, "content");
         if (!cJSON_IsArray(content)) {
@@ -242,13 +392,11 @@ char *claude_ask(const char *prompt)
             break;
         }
 
-        /* Echo the assistant's tool_use turn back into the conversation. */
         cJSON *am = cJSON_CreateObject();
         cJSON_AddStringToObject(am, "role", "assistant");
         cJSON_AddItemToObject(am, "content", cJSON_Duplicate(content, true));
         cJSON_AddItemToArray(messages, am);
 
-        /* Run each requested tool and collect the results. */
         cJSON *results = cJSON_CreateArray();
         cJSON_ArrayForEach(block, content) {
             cJSON *type = cJSON_GetObjectItem(block, "type");
@@ -277,7 +425,6 @@ char *claude_ask(const char *prompt)
         cJSON_Delete(rroot);
     }
 
-    /* Commit only the clean turns to memory (the tool round-trips are dropped). */
     if (result != NULL) {
         history_add("user", prompt);
         history_add("assistant", result);
@@ -287,3 +434,5 @@ char *claude_ask(const char *prompt)
     cJSON_Delete(messages);
     return result;
 }
+
+#endif
