@@ -128,8 +128,8 @@ static void voice_task(void *arg)
         chat_ui_set_status("Tes suara...");
         chat_ui_set_state(UI_SPEAKING);
         tts_say(s_wake_ok
-                ? "Halo! Aku Vee. Sebut kata pemicu atau tap layar, lalu bicara."
-                : "Halo! Aku Vee, asistenmu. Tap layar lalu bicara setelah "
+                ? "Halo! Aku Wanda. Sebut kata pemicu atau tap layar, lalu bicara."
+                : "Halo! Aku Wanda, asistenmu. Tap layar lalu bicara setelah "
                   "muncul tulisan mendengarkan.");
     }
     chat_ui_set_status("Tap untuk bicara");
