@@ -23,6 +23,9 @@ static i2s_chan_handle_t s_rx;
 esp_err_t audio_init(void)
 {
     i2s_chan_config_t chan_cfg = I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_AUTO, I2S_ROLE_MASTER);
+    /* Deeper DMA queue (~160 ms) so playback rides out scheduling hiccups. */
+    chan_cfg.dma_desc_num = 8;
+    chan_cfg.dma_frame_num = 480;
     esp_err_t err = i2s_new_channel(&chan_cfg, &s_tx, NULL);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "i2s_new_channel: %s", esp_err_to_name(err));
