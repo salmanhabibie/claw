@@ -78,6 +78,12 @@ esp_err_t wifi_connect(void)
         return ESP_FAIL;
     }
 
+    /* Disable WiFi modem power-save. With power-save on, the radio sleeps
+     * between DTIM beacons; on a weak link this stalls sustained TLS reads
+     * (EAGAIN / "No more processes") and the audio download drops mid-stream. */
+    esp_wifi_set_ps(WIFI_PS_NONE);
+    ESP_LOGI(TAG, "WiFi power-save disabled");
+
     /* Some home routers run a flaky DNS resolver (we saw getaddrinfo() fail
      * for api.elevenlabs.io). Override with public DNS so name resolution is
      * reliable. The DHCP lease already set IP/gateway by now. */

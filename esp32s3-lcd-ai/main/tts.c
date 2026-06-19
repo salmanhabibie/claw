@@ -85,7 +85,7 @@ void tts_say(const char *text)
             .event_handler = http_event,
             .user_data = &st,
             .crt_bundle_attach = esp_crt_bundle_attach,
-            .timeout_ms = 30000,
+            .timeout_ms = 60000,
             .buffer_size = 2048,
             .buffer_size_tx = 1024,
         };
