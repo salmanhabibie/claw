@@ -5,6 +5,7 @@
 #include "freertos/task.h"
 #include "freertos/semphr.h"
 #include "esp_log.h"
+#include "esp_heap_caps.h"
 #include "nvs_flash.h"
 #include "esp_io_expander.h"
 
@@ -15,11 +16,15 @@
 #include "chat_ui.h"
 #include "audio.h"
 #include "tts.h"
+#include "stt.h"
 
 static const char *TAG = "app";
 
 /* TLS handshake + audio buffers need a generous stack. */
-#define VOICE_TASK_STACK (1024 * 24)
+#define VOICE_TASK_STACK (1024 * 32)
+
+/* How long to record after the TALK button is tapped. */
+#define RECORD_SECONDS 5
 
 static SemaphoreHandle_t s_talk_sem;
 
@@ -32,17 +37,50 @@ static void halt(const char *why)
     }
 }
 
-/* Wakes when the TALK button is tapped. Step 1: just speak a phrase, which
- * validates both touch and the speaker. Mic recording + STT + Claude come
- * in the next steps. */
+/* One full voice turn, triggered by the TALK button:
+ *   record mic -> ElevenLabs STT -> Claude -> ElevenLabs TTS (spoken reply). */
 static void voice_task(void *arg)
 {
     (void)arg;
     for (;;) {
         xSemaphoreTake(s_talk_sem, portMAX_DELAY);
-        chat_ui_set_status("Speaking...");
-        tts_say("Halo! Tombol bicara berfungsi. Fitur rekam suara sedang disiapkan.");
-        chat_ui_set_status("Tap TALK to speak");
+
+        int16_t *pcm = heap_caps_malloc(
+            (size_t)RECORD_SECONDS * MIC_SAMPLE_RATE * sizeof(int16_t),
+            MALLOC_CAP_SPIRAM);
+        if (pcm == NULL) {
+            chat_ui_set_status("Memori penuh");
+            continue;
+        }
+
+        chat_ui_set_status("Mendengarkan... bicara sekarang!");
+        size_t n = mic_record(pcm, RECORD_SECONDS);
+
+        chat_ui_set_status("Memproses suara...");
+        char *text = stt_transcribe(pcm, n);
+        free(pcm);
+
+        if (text == NULL || text[0] == '\0') {
+            free(text);
+            chat_ui_set_status("Tidak terdengar - tap untuk ulangi");
+            continue;
+        }
+        chat_ui_set_response(text);   /* show what was understood */
+
+        chat_ui_set_status("Berpikir...");
+        char *reply = claude_ask(text);
+        free(text);
+        if (reply == NULL) {
+            chat_ui_set_status("Gagal menghubungi Claude");
+            continue;
+        }
+        chat_ui_set_response(reply);
+
+        chat_ui_set_status("Berbicara...");
+        tts_say(reply);
+        free(reply);
+
+        chat_ui_set_status("Tap untuk bicara");
     }
 }
 
@@ -50,9 +88,9 @@ static void voice_task(void *arg)
 static void speaker_test_task(void *arg)
 {
     (void)arg;
-    chat_ui_set_status("Speaking test...");
-    tts_say("Halo! Ini tes suara dari asisten Claude.");
-    chat_ui_set_status("Tap TALK to speak");
+    chat_ui_set_status("Tes suara...");
+    tts_say("Halo! Ini tes suara dari asisten Claude. Tekan tombol untuk bicara dengan saya.");
+    chat_ui_set_status("Tap untuk bicara");
     vTaskDelete(NULL);
 }
 
@@ -97,14 +135,19 @@ void app_main(void)
         audio_play_test_tone();
     }
 
+    /* Microphone (I2S RX). Non-fatal: text still works without voice input. */
+    if (mic_init() != ESP_OK) {
+        ESP_LOGW(TAG, "mic init failed; voice input disabled");
+    }
+
     s_talk_sem = xSemaphoreCreateBinary();
     chat_ui_init(s_talk_sem);
 
-    chat_ui_set_status("Connecting to WiFi...");
+    chat_ui_set_status("Menyambung WiFi...");
     if (wifi_connect() != ESP_OK) {
-        chat_ui_set_status("WiFi failed - check menuconfig");
+        chat_ui_set_status("WiFi gagal - cek menuconfig");
     } else {
-        chat_ui_set_status("Tap TALK to speak");
+        chat_ui_set_status("Tap untuk bicara");
     }
 
     /* Boot speaker check + the TALK-button worker. */

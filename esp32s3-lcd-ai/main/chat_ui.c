@@ -60,7 +60,7 @@ void chat_ui_init(SemaphoreHandle_t talk_sem)
     lv_obj_add_event_cb(btn, talk_btn_cb, LV_EVENT_CLICKED, NULL);
 
     lv_obj_t *btn_lbl = lv_label_create(btn);
-    lv_label_set_text(btn_lbl, "TALK");
+    lv_label_set_text(btn_lbl, "BICARA");
     lv_obj_set_style_text_color(btn_lbl, lv_color_hex(0xffffff), 0);
     lv_obj_center(btn_lbl);
 

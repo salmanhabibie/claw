@@ -47,6 +47,13 @@ static char *build_request_body(const char *prompt)
     cJSON_AddStringToObject(root, "model", CONFIG_CLAUDE_MODEL);
     cJSON_AddNumberToObject(root, "max_tokens", CONFIG_CLAUDE_MAX_TOKENS);
 
+    /* Voice assistant: keep replies short, spoken, Indonesian, no markdown. */
+    cJSON_AddStringToObject(root, "system",
+        "Kamu adalah asisten suara di sebuah perangkat kecil dengan layar bulat. "
+        "Jawab dalam Bahasa Indonesia yang ramah dan ringkas, maksimal 2-3 kalimat, "
+        "tanpa format markdown, tanda bintang, atau emoji, karena jawabanmu akan "
+        "dibacakan dengan suara.");
+
     cJSON *messages = cJSON_AddArrayToObject(root, "messages");
     cJSON *message = cJSON_CreateObject();
     cJSON_AddStringToObject(message, "role", "user");

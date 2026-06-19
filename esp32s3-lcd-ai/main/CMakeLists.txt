@@ -8,6 +8,7 @@ idf_component_register(
         "chat_ui.c"
         "audio.c"
         "tts.c"
+        "stt.c"
     INCLUDE_DIRS "."
     REQUIRES
         # networking + Claude API
