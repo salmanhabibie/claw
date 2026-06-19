@@ -1,6 +1,8 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdbool.h>
+#include <stdlib.h>
+#include <time.h>
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -9,6 +11,7 @@
 #include "esp_heap_caps.h"
 #include "nvs_flash.h"
 #include "esp_io_expander.h"
+#include "esp_netif_sntp.h"
 
 #include "wifi.h"
 #include "claude_client.h"
@@ -162,6 +165,10 @@ void app_main(void)
         ESP_LOGW(TAG, "mic init failed; voice input disabled");
     }
 
+    /* Restore saved volume & brightness (defaults if never set). */
+    audio_set_volume(bsp_nvs_get_u8("vol", 80));
+    bsp_backlight_set(bsp_nvs_get_u8("bri", 100));
+
     s_talk_sem = xSemaphoreCreateBinary();
     chat_ui_init(s_talk_sem);
 
@@ -170,6 +177,12 @@ void app_main(void)
         chat_ui_set_status("WiFi gagal - cek menuconfig");
     } else {
         chat_ui_set_status("Tap untuk bicara");
+        /* Sync the clock over NTP (WIB, UTC+7). Non-blocking; the UI shows
+         * "--:--" until the first sync arrives. */
+        setenv("TZ", "WIB-7", 1);
+        tzset();
+        esp_sntp_config_t sntp_cfg = ESP_NETIF_SNTP_DEFAULT_CONFIG("pool.ntp.org");
+        esp_netif_sntp_init(&sntp_cfg);
     }
 
     /* Single worker: speaks the greeting, then handles each TALK turn. Using

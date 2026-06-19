@@ -1,19 +1,28 @@
 #include "chat_ui.h"
 
 #include <math.h>
+#include <time.h>
+#include <stdio.h>
 
 #include "lvgl.h"
 #include "esp_lvgl_port.h"
 #include "esp_log.h"
 
+#include "audio.h"
+#include "board.h"
+
 static const char *TAG = "ui";
 
 static lv_obj_t *s_status;
 static lv_obj_t *s_response;
+static lv_obj_t *s_clock;          /* big HH:MM, shown only when idle */
 static lv_obj_t *s_eye_l;
 static lv_obj_t *s_eye_r;
 static lv_obj_t *s_mouth;
 static lv_obj_t *s_dot;            /* orbiting "thinking" loader */
+static lv_obj_t *s_settings;       /* full-screen settings overlay (hidden) */
+static lv_obj_t *s_vol_val;        /* "Volume  NN%" label */
+static lv_obj_t *s_bri_val;        /* "Kecerahan  NN%" label */
 static SemaphoreHandle_t s_talk_sem;
 static ui_state_t s_state = UI_IDLE;
 
@@ -27,6 +36,23 @@ static ui_state_t s_state = UI_IDLE;
 #define COL_LISTEN  0x49e08b   /* green */
 #define COL_THINK   0xffc24b   /* amber */
 #define COL_SPEAK   0x6fd0ff
+
+/* Pick the largest enabled Montserrat for the clock / titles, falling back to
+ * the default font if the bigger ones aren't built in (so the build never
+ * breaks on a stale sdkconfig that lacks them). */
+#if LV_FONT_MONTSERRAT_48
+static const lv_font_t *CLOCK_FONT = &lv_font_montserrat_48;
+#elif LV_FONT_MONTSERRAT_28
+static const lv_font_t *CLOCK_FONT = &lv_font_montserrat_28;
+#else
+static const lv_font_t *CLOCK_FONT = NULL;
+#endif
+
+#if LV_FONT_MONTSERRAT_28
+static const lv_font_t *TITLE_FONT = &lv_font_montserrat_28;
+#else
+static const lv_font_t *TITLE_FONT = NULL;
+#endif
 
 /* ---- animation exec callbacks (drive both eyes / the mouth together) ---- */
 
@@ -139,10 +165,120 @@ static void blink_timer_cb(lv_timer_t *t)
 static void talk_cb(lv_event_t *e)
 {
     (void)e;
+    /* Ignore taps meant for the settings panel. */
+    if (s_settings != NULL && !lv_obj_has_flag(s_settings, LV_OBJ_FLAG_HIDDEN)) {
+        return;
+    }
     ESP_LOGI(TAG, "tap -> start voice turn");
     if (s_talk_sem != NULL) {
         xSemaphoreGive(s_talk_sem);
     }
+}
+
+/* Refresh the idle clock from the system time once a second. */
+static void clock_timer_cb(lv_timer_t *t)
+{
+    (void)t;
+    time_t now = time(NULL);
+    struct tm tm;
+    localtime_r(&now, &tm);
+    char buf[8];
+    if (tm.tm_year < (2020 - 1900)) {
+        snprintf(buf, sizeof(buf), "--:--");          /* not yet NTP-synced */
+    } else {
+        snprintf(buf, sizeof(buf), "%02d:%02d", tm.tm_hour, tm.tm_min);
+    }
+    lv_label_set_text(s_clock, buf);
+}
+
+/* ---- settings panel (long-press to open) ---- */
+
+static void vol_slider_cb(lv_event_t *e)
+{
+    lv_obj_t *sl = lv_event_get_target(e);
+    int v = lv_slider_get_value(sl);
+    audio_set_volume(v);
+    bsp_nvs_set_u8("vol", (uint8_t)v);
+    lv_label_set_text_fmt(s_vol_val, "Volume  %d%%", v);
+}
+
+static void bri_slider_cb(lv_event_t *e)
+{
+    lv_obj_t *sl = lv_event_get_target(e);
+    int v = lv_slider_get_value(sl);
+    bsp_backlight_set(v);
+    bsp_nvs_set_u8("bri", (uint8_t)v);
+    lv_label_set_text_fmt(s_bri_val, "Kecerahan  %d%%", v);
+}
+
+static void settings_open_cb(lv_event_t *e)
+{
+    (void)e;
+    if (s_settings != NULL) {
+        lv_obj_remove_flag(s_settings, LV_OBJ_FLAG_HIDDEN);
+    }
+}
+
+static void settings_close_cb(lv_event_t *e)
+{
+    (void)e;
+    if (s_settings != NULL) {
+        lv_obj_add_flag(s_settings, LV_OBJ_FLAG_HIDDEN);
+    }
+}
+
+/* Build the (initially hidden) full-screen settings panel: volume + brightness
+ * sliders and a close button. Top-most so it intercepts taps when open. */
+static void build_settings(lv_obj_t *scr)
+{
+    s_settings = lv_obj_create(scr);
+    lv_obj_remove_style_all(s_settings);
+    lv_obj_set_size(s_settings, LV_PCT(100), LV_PCT(100));
+    lv_obj_set_style_bg_color(s_settings, lv_color_hex(0x0b0f14), 0);
+    lv_obj_set_style_bg_opa(s_settings, LV_OPA_COVER, 0);
+    lv_obj_set_flex_flow(s_settings, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(s_settings, LV_FLEX_ALIGN_CENTER,
+                          LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_row(s_settings, 14, 0);
+    lv_obj_remove_flag(s_settings, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(s_settings, LV_OBJ_FLAG_HIDDEN);
+
+    lv_obj_t *title = lv_label_create(s_settings);
+    lv_label_set_text(title, "Setelan");
+    if (TITLE_FONT) {
+        lv_obj_set_style_text_font(title, TITLE_FONT, 0);
+    }
+    lv_obj_set_style_text_color(title, lv_color_hex(0x7ec8ff), 0);
+
+    int vol = audio_get_volume();
+    int bri = bsp_nvs_get_u8("bri", 100);
+
+    /* Volume */
+    s_vol_val = lv_label_create(s_settings);
+    lv_label_set_text_fmt(s_vol_val, "Volume  %d%%", vol);
+    lv_obj_set_style_text_color(s_vol_val, lv_color_hex(0xe6edf3), 0);
+    lv_obj_t *vsl = lv_slider_create(s_settings);
+    lv_obj_set_width(vsl, 250);
+    lv_slider_set_range(vsl, 0, 100);
+    lv_slider_set_value(vsl, vol, LV_ANIM_OFF);
+    lv_obj_add_event_cb(vsl, vol_slider_cb, LV_EVENT_VALUE_CHANGED, NULL);
+
+    /* Brightness */
+    s_bri_val = lv_label_create(s_settings);
+    lv_label_set_text_fmt(s_bri_val, "Kecerahan  %d%%", bri);
+    lv_obj_set_style_text_color(s_bri_val, lv_color_hex(0xe6edf3), 0);
+    lv_obj_t *bsl = lv_slider_create(s_settings);
+    lv_obj_set_width(bsl, 250);
+    lv_slider_set_range(bsl, 10, 100);   /* never fully dark */
+    lv_slider_set_value(bsl, bri, LV_ANIM_OFF);
+    lv_obj_add_event_cb(bsl, bri_slider_cb, LV_EVENT_VALUE_CHANGED, NULL);
+
+    /* Close */
+    lv_obj_t *btn = lv_button_create(s_settings);
+    lv_obj_set_style_margin_top(btn, 10, 0);
+    lv_obj_add_event_cb(btn, settings_close_cb, LV_EVENT_CLICKED, NULL);
+    lv_obj_t *blbl = lv_label_create(btn);
+    lv_label_set_text(blbl, "Tutup");
 }
 
 void chat_ui_init(SemaphoreHandle_t talk_sem)
@@ -155,11 +291,21 @@ void chat_ui_init(SemaphoreHandle_t talk_sem)
     lv_obj_set_style_bg_color(scr, lv_color_hex(0x0b0f14), 0);
     lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, 0);
 
-    /* Status line near the top. */
+    /* Status line near the top (shown while active). */
     s_status = lv_label_create(scr);
     lv_label_set_text(s_status, "Booting...");
     lv_obj_set_style_text_color(s_status, lv_color_hex(0x7ec8ff), 0);
     lv_obj_align(s_status, LV_ALIGN_TOP_MID, 0, 42);
+
+    /* Big clock (shown only while idle, in place of the status line). */
+    s_clock = lv_label_create(scr);
+    lv_label_set_text(s_clock, "--:--");
+    if (CLOCK_FONT) {
+        lv_obj_set_style_text_font(s_clock, CLOCK_FONT, 0);
+    }
+    lv_obj_set_style_text_color(s_clock, lv_color_hex(0xbfe6ff), 0);
+    lv_obj_align(s_clock, LV_ALIGN_TOP_MID, 0, 46);
+    lv_obj_add_flag(s_clock, LV_OBJ_FLAG_HIDDEN);
 
     /* Two eyes. */
     lv_obj_t *eyes[2];
@@ -209,16 +355,21 @@ void chat_ui_init(SemaphoreHandle_t talk_sem)
     lv_label_set_text(s_response, "");
     lv_obj_align(s_response, LV_ALIGN_BOTTOM_MID, 0, -34);
 
-    /* Transparent full-screen tap layer: tap anywhere to talk. */
+    /* Transparent full-screen tap layer: short tap to talk, long-press for
+     * settings. SHORT_CLICKED (not CLICKED) so a long-press doesn't also talk. */
     lv_obj_t *overlay = lv_button_create(scr);
     lv_obj_remove_style_all(overlay);
     lv_obj_set_size(overlay, LV_PCT(100), LV_PCT(100));
     lv_obj_set_style_bg_opa(overlay, LV_OPA_TRANSP, 0);
     lv_obj_add_flag(overlay, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_event_cb(overlay, talk_cb, LV_EVENT_CLICKED, NULL);
+    lv_obj_add_event_cb(overlay, talk_cb, LV_EVENT_SHORT_CLICKED, NULL);
+    lv_obj_add_event_cb(overlay, settings_open_cb, LV_EVENT_LONG_PRESSED, NULL);
 
-    /* Blink driver. */
+    build_settings(scr);
+
+    /* Blink driver + 1 Hz clock. */
     lv_timer_create(blink_timer_cb, 3200, NULL);
+    lv_timer_create(clock_timer_cb, 1000, NULL);
 
     set_eyes(EYE_W, EYE_H, COL_IDLE);
 
@@ -253,6 +404,15 @@ void chat_ui_set_state(ui_state_t state)
     lv_anim_delete(s_dot, NULL);
     lv_obj_add_flag(s_mouth, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_flag(s_dot, LV_OBJ_FLAG_HIDDEN);
+
+    /* Idle shows the clock instead of the status line. */
+    if (state == UI_IDLE) {
+        lv_obj_remove_flag(s_clock, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(s_status, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_obj_add_flag(s_clock, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_remove_flag(s_status, LV_OBJ_FLAG_HIDDEN);
+    }
 
     switch (state) {
     case UI_IDLE:

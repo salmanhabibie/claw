@@ -5,8 +5,10 @@
 #include "freertos/task.h"
 #include "driver/gpio.h"
 #include "driver/i2c.h"
+#include "driver/ledc.h"
 #include "esp_io_expander_tca9554.h"
 #include "esp_log.h"
+#include "nvs.h"
 
 static const char *TAG = "board";
 
@@ -128,12 +130,80 @@ void bsp_i2c_scan(void)
     ESP_LOGI(TAG, "I2C scan done (%d device(s))", found);
 }
 
+/* ---- Backlight dimming via LEDC PWM (GPIO5) ---- */
+
+#define BL_LEDC_TIMER     LEDC_TIMER_0
+#define BL_LEDC_MODE      LEDC_LOW_SPEED_MODE
+#define BL_LEDC_CHANNEL   LEDC_CHANNEL_0
+#define BL_LEDC_RES       LEDC_TIMER_10_BIT   /* duty 0..1023 */
+#define BL_LEDC_FREQ_HZ   5000
+#define BL_DUTY_MAX       1023
+
+static bool s_bl_ready = false;
+
+static void backlight_init(void)
+{
+    if (s_bl_ready) {
+        return;
+    }
+    ledc_timer_config_t tcfg = {
+        .speed_mode      = BL_LEDC_MODE,
+        .timer_num       = BL_LEDC_TIMER,
+        .duty_resolution = BL_LEDC_RES,
+        .freq_hz         = BL_LEDC_FREQ_HZ,
+        .clk_cfg         = LEDC_AUTO_CLK,
+    };
+    ledc_timer_config(&tcfg);
+    ledc_channel_config_t ccfg = {
+        .gpio_num   = BSP_LCD_BL,
+        .speed_mode = BL_LEDC_MODE,
+        .channel    = BL_LEDC_CHANNEL,
+        .timer_sel  = BL_LEDC_TIMER,
+        .duty       = BL_DUTY_MAX,
+        .hpoint     = 0,
+    };
+    ledc_channel_config(&ccfg);
+    s_bl_ready = true;
+}
+
+void bsp_backlight_set(int percent)
+{
+    backlight_init();
+    if (percent < 0)   percent = 0;
+    if (percent > 100) percent = 100;
+    uint32_t duty = (uint32_t)percent * BL_DUTY_MAX / 100;
+    ledc_set_duty(BL_LEDC_MODE, BL_LEDC_CHANNEL, duty);
+    ledc_update_duty(BL_LEDC_MODE, BL_LEDC_CHANNEL);
+}
+
 void bsp_backlight_on(void)
 {
-    gpio_config_t io = {
-        .pin_bit_mask = 1ULL << BSP_LCD_BL,
-        .mode = GPIO_MODE_OUTPUT,
-    };
-    gpio_config(&io);
-    gpio_set_level(BSP_LCD_BL, 1);
+    bsp_backlight_set(100);
+}
+
+/* ---- NVS helpers (namespace "settings") ---- */
+
+uint8_t bsp_nvs_get_u8(const char *key, uint8_t def_val)
+{
+    nvs_handle_t h;
+    if (nvs_open("settings", NVS_READONLY, &h) != ESP_OK) {
+        return def_val;
+    }
+    uint8_t v = def_val;
+    if (nvs_get_u8(h, key, &v) != ESP_OK) {
+        v = def_val;
+    }
+    nvs_close(h);
+    return v;
+}
+
+void bsp_nvs_set_u8(const char *key, uint8_t val)
+{
+    nvs_handle_t h;
+    if (nvs_open("settings", NVS_READWRITE, &h) != ESP_OK) {
+        return;
+    }
+    nvs_set_u8(h, key, val);
+    nvs_commit(h);
+    nvs_close(h);
 }

@@ -29,5 +29,14 @@ void bsp_probe_touch_reset(esp_io_expander_handle_t expander);
 /* Probe the I2C bus and log every address that ACKs (diagnostic). */
 void bsp_i2c_scan(void);
 
-/* Turn the LCD backlight on (GPIO5, direct). */
+/* Turn the LCD backlight fully on (GPIO5). Also lazily configures the LEDC
+ * PWM channel used for dimming, so existing callers keep working. */
 void bsp_backlight_on(void);
+
+/* Set LCD backlight brightness, 0..100 percent (clamped). Uses LEDC PWM. */
+void bsp_backlight_set(int percent);
+
+/* Tiny NVS helpers (namespace "settings") for persisting small u8 values such
+ * as volume and brightness across reboots. */
+uint8_t bsp_nvs_get_u8(const char *key, uint8_t def_val);
+void    bsp_nvs_set_u8(const char *key, uint8_t val);

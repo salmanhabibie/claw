@@ -27,6 +27,7 @@ idf_component_register(
         esp_driver_spi
         esp_driver_gpio
         esp_driver_i2s
+        esp_driver_ledc
         esp_lcd
         # managed components (see idf_component.yml)
         lvgl

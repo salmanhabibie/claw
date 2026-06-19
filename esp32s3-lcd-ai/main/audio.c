@@ -18,8 +18,25 @@ static i2s_chan_handle_t s_rx;
 
 /* Digital volume, as a Q16 gain. 65536 == unity (16-bit sample left-shifted
  * into the 32-bit slot). The amp/speaker on this board is quiet at unity, so
- * boost and saturate. Raise for louder (more clipping), lower for cleaner. */
-#define AUDIO_GAIN_Q16    (65536 * 4)
+ * 100% maps to a 4x boost (loud, slightly clipping); lower is cleaner/quieter.
+ * s_gain_q16 is the live gain, scaled from the 0..100 percent volume. */
+#define AUDIO_GAIN_MAX_Q16  (65536 * 4)
+
+static int     s_volume_pct = 80;
+static int64_t s_gain_q16   = (int64_t)AUDIO_GAIN_MAX_Q16 * 80 / 100;
+
+void audio_set_volume(int percent)
+{
+    if (percent < 0)   percent = 0;
+    if (percent > 100) percent = 100;
+    s_volume_pct = percent;
+    s_gain_q16 = (int64_t)AUDIO_GAIN_MAX_Q16 * percent / 100;
+}
+
+int audio_get_volume(void)
+{
+    return s_volume_pct;
+}
 
 esp_err_t audio_init(void)
 {
@@ -228,7 +245,7 @@ void audio_play_mono16(const uint8_t *data, size_t len)
     while (i < nsamp) {
         size_t n = (nsamp - i < BLK) ? (nsamp - i) : BLK;
         for (size_t j = 0; j < n; j++) {
-            int64_t v = (int64_t)mono[i + j] * AUDIO_GAIN_Q16;
+            int64_t v = (int64_t)mono[i + j] * s_gain_q16;
             if (v > INT32_MAX)      v = INT32_MAX;
             else if (v < INT32_MIN) v = INT32_MIN;
             out[j] = (int32_t)v;

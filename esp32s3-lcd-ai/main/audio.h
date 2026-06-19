@@ -11,6 +11,11 @@ esp_err_t audio_init(void);
  * to both stereo channels. Blocks until the data has been queued to I2S. */
 void audio_play_mono16(const uint8_t *data, size_t len);
 
+/* Set/get output volume as 0..100 percent (100 == the board's loud, slightly
+ * clipping max). Applied to subsequent audio_play_mono16() calls. */
+void audio_set_volume(int percent);
+int  audio_get_volume(void);
+
 /* Play a loud ~1.5s 440 Hz sine tone locally (no network). Diagnostic to test
  * the I2S -> DAC -> amplifier -> speaker path on its own. */
 void audio_play_test_tone(void);

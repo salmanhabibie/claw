@@ -21,3 +21,7 @@ CONFIG_MBEDTLS_CERTIFICATE_BUNDLE_DEFAULT_FULL=y
 
 # ---- Stacks: main task runs setup + the TLS speaker test, so give it room ----
 CONFIG_ESP_MAIN_TASK_STACK_SIZE=16384
+
+# ---- LVGL: larger fonts for the idle clock ----
+CONFIG_LV_FONT_MONTSERRAT_28=y
+CONFIG_LV_FONT_MONTSERRAT_48=y
