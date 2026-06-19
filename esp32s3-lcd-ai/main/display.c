@@ -9,8 +9,35 @@
 #include "esp_lcd_spd2010.h"
 #include "esp_lcd_touch_spd2010.h"
 #include "esp_lvgl_port.h"
+#include "lvgl.h"
 
 static const char *TAG = "display";
+
+/* Touch handle, read by our own LVGL input device below. */
+static esp_lcd_touch_handle_t s_tp;
+
+/* Resilient touch read for LVGL. Unlike esp_lvgl_port's built-in touch read
+ * (which ESP_ERROR_CHECKs the I2C read and reboots on a single failure), this
+ * tolerates a transient I2C glitch — common while the speaker amp is active —
+ * by reporting "released" for that one sample instead of crashing. */
+static void touch_read_cb(lv_indev_t *indev, lv_indev_data_t *data)
+{
+    (void)indev;
+    data->state = LV_INDEV_STATE_RELEASED;
+    if (s_tp == NULL) {
+        return;
+    }
+    if (esp_lcd_touch_read_data(s_tp) != ESP_OK) {
+        return;   /* drop this sample; do NOT abort */
+    }
+    uint16_t x = 0, y = 0, strength = 0;
+    uint8_t cnt = 0;
+    if (esp_lcd_touch_get_coordinates(s_tp, &x, &y, &strength, &cnt, 1) && cnt > 0) {
+        data->point.x = x;
+        data->point.y = y;
+        data->state = LV_INDEV_STATE_PRESSED;
+    }
+}
 
 #define LCD_HOST           SPI2_HOST
 #define LCD_BITS_PER_PIXEL 16
@@ -117,11 +144,15 @@ lv_display_t *bsp_display_init(esp_io_expander_handle_t expander)
         esp_lcd_touch_handle_t tp = NULL;
         terr = esp_lcd_touch_new_i2c_spd2010(tp_io, &tp_config, &tp);
         if (terr == ESP_OK) {
-            const lvgl_port_touch_cfg_t touch_cfg = {
-                .disp = disp,
-                .handle = tp,
-            };
-            lvgl_port_add_touch(&touch_cfg);
+            s_tp = tp;
+            /* Register our own resilient input device instead of
+             * lvgl_port_add_touch() (which reboots on a single I2C error). */
+            lvgl_port_lock(0);
+            lv_indev_t *indev = lv_indev_create();
+            lv_indev_set_type(indev, LV_INDEV_TYPE_POINTER);
+            lv_indev_set_read_cb(indev, touch_read_cb);
+            lv_indev_set_display(indev, disp);
+            lvgl_port_unlock();
         }
     }
     if (terr != ESP_OK) {
