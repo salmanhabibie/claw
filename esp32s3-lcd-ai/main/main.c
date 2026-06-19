@@ -55,8 +55,8 @@ static void voice_task(void *arg)
     if (strlen(CONFIG_ELEVENLABS_API_KEY) > 0) {
         chat_ui_set_status("Tes suara...");
         chat_ui_set_state(UI_SPEAKING);
-        tts_say("Halo! Ini asisten Claude. Tekan tombol bicara, "
-                "lalu ngomong setelah muncul tulisan mendengarkan.");
+        tts_say("Halo! Aku Vee, asistenmu. Tap layar lalu bicara setelah "
+                "muncul tulisan mendengarkan.");
     }
     chat_ui_set_status("Tap untuk bicara");
     chat_ui_set_state(UI_IDLE);
