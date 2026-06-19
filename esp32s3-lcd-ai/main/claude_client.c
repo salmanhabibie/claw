@@ -20,7 +20,11 @@ static const char *SYSTEM_PROMPT =
     "Jawab dalam Bahasa Indonesia yang ramah dan ringkas, maksimal 2-3 kalimat, "
     "tanpa format markdown, tanda bintang, atau emoji, karena jawabanmu akan "
     "dibacakan dengan suara. Untuk data terkini seperti cuaca atau harga kripto, "
-    "WAJIB gunakan alat yang tersedia, jangan menebak.";
+    "WAJIB gunakan alat yang tersedia, jangan menebak. "
+    "Kamu juga bisa mengendalikan smart home lewat Home Assistant: bila pengguna "
+    "minta menyalakan/mematikan/mengatur perangkat (lampu, AC, kipas, saklar) atau "
+    "menanyakan status sensor, panggil ha_list_entities dulu bila belum tahu "
+    "entity_id-nya, lalu ha_call_service untuk aksi atau ha_get_state untuk membaca.";
 
 /* Tool definitions sent to Claude on every request. */
 static const char *TOOLS_JSON =
@@ -36,6 +40,25 @@ static const char *TOOLS_JSON =
   "\"input_schema\":{\"type\":\"object\",\"properties\":{"
     "\"coin\":{\"type\":\"string\",\"description\":\"ID CoinGecko, contoh: bitcoin, ethereum, solana\"}},"
     "\"required\":[\"coin\"]}"
+"},{"
+  "\"name\":\"ha_list_entities\","
+  "\"description\":\"Daftar perangkat Home Assistant (entity_id, nama, status). Panggil ini saat belum tahu entity_id perangkat yang dimaksud pengguna.\","
+  "\"input_schema\":{\"type\":\"object\",\"properties\":{}}"
+"},{"
+  "\"name\":\"ha_call_service\","
+  "\"description\":\"Jalankan layanan Home Assistant untuk mengendalikan perangkat. Contoh: nyalakan lampu -> domain=light, service=turn_on, entity_id=light.ruang_tamu. Atur kecerahan/suhu lewat data, mis. {\\\"brightness_pct\\\":30} atau {\\\"temperature\\\":24}.\","
+  "\"input_schema\":{\"type\":\"object\",\"properties\":{"
+    "\"domain\":{\"type\":\"string\",\"description\":\"Domain HA, mis. light, switch, climate, fan, cover\"},"
+    "\"service\":{\"type\":\"string\",\"description\":\"Service, mis. turn_on, turn_off, set_temperature\"},"
+    "\"entity_id\":{\"type\":\"string\",\"description\":\"Entity yang dikendalikan, mis. light.ruang_tamu\"},"
+    "\"data\":{\"type\":\"object\",\"description\":\"Parameter tambahan opsional, mis. brightness_pct, temperature, hs_color\"}},"
+    "\"required\":[\"domain\",\"service\"]}"
+"},{"
+  "\"name\":\"ha_get_state\","
+  "\"description\":\"Baca status satu perangkat/sensor Home Assistant.\","
+  "\"input_schema\":{\"type\":\"object\",\"properties\":{"
+    "\"entity_id\":{\"type\":\"string\",\"description\":\"Entity yang dibaca, mis. sensor.suhu_kamar\"}},"
+    "\"required\":[\"entity_id\"]}"
 "}]";
 
 /* ---- HTTP plumbing ---- */
@@ -149,7 +172,7 @@ char *claude_ask(const char *prompt)
 
     /* Tool-use loop: Claude may ask to call a tool; run it, feed the result
      * back, and ask again. Cap the iterations so we always terminate. */
-    for (int iter = 0; iter < 4 && result == NULL; iter++) {
+    for (int iter = 0; iter < 6 && result == NULL; iter++) {
         char *body = build_body(messages);
         if (body == NULL) break;
         char *resp = do_request(body);

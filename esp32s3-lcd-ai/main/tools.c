@@ -10,7 +10,7 @@
 
 static const char *TAG = "tools";
 
-/* ---- tiny HTTP GET that returns the body as a heap string ---- */
+/* ---- tiny HTTP helper that returns the body as a heap string ---- */
 
 typedef struct { char *buf; size_t len, cap; } body_t;
 
@@ -31,29 +31,57 @@ static esp_err_t on_data(esp_http_client_event_t *evt)
     return ESP_OK;
 }
 
-static char *http_get(const char *url)
+static char *http_do(esp_http_client_method_t method, const char *url,
+                     const char *bearer, const char *body, int *status_out)
 {
     body_t b = {0};
     esp_http_client_config_t cfg = {
         .url = url,
-        .method = HTTP_METHOD_GET,
+        .method = method,
         .event_handler = on_data,
         .user_data = &b,
-        .crt_bundle_attach = esp_crt_bundle_attach,
+        .crt_bundle_attach = esp_crt_bundle_attach,   /* used only for https */
         .timeout_ms = 15000,
-        .buffer_size = 2048,
+        .buffer_size = 4096,
+        .buffer_size_tx = 1024,
     };
     esp_http_client_handle_t c = esp_http_client_init(&cfg);
-    esp_http_client_set_header(c, "User-Agent", "curl/8.0");   /* wttr.in wants this */
+    esp_http_client_set_header(c, "User-Agent", "claw/1.0");
+
+    char *authhdr = NULL;
+    if (bearer && bearer[0]) {
+        size_t L = strlen(bearer) + 16;
+        authhdr = malloc(L);
+        if (authhdr) {
+            snprintf(authhdr, L, "Bearer %s", bearer);
+            esp_http_client_set_header(c, "Authorization", authhdr);
+        }
+    }
+    if (body) {
+        esp_http_client_set_header(c, "Content-Type", "application/json");
+        esp_http_client_set_post_field(c, body, strlen(body));
+    }
+
     esp_err_t err = esp_http_client_perform(c);
     int status = esp_http_client_get_status_code(c);
     esp_http_client_cleanup(c);
-    if (err != ESP_OK || status != 200) {
-        ESP_LOGW(TAG, "GET %s -> err=%s status=%d", url, esp_err_to_name(err), status);
+    free(authhdr);
+    if (status_out) *status_out = status;
+
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "%s -> err=%s status=%d", url, esp_err_to_name(err), status);
         free(b.buf);
         return NULL;
     }
-    return b.buf;   /* may be NULL if empty */
+    return b.buf;   /* may be NULL if the body was empty */
+}
+
+static char *http_get(const char *url)
+{
+    int status = 0;
+    char *body = http_do(HTTP_METHOD_GET, url, NULL, NULL, &status);
+    if (status != 200) { free(body); return NULL; }
+    return body;
 }
 
 /* Append `s` into `dst` (size cap) starting at *off, URL-encoding spaces. */
@@ -74,7 +102,6 @@ static char *tool_get_weather(const cJSON *input)
 
     char url[256];
     size_t off = 0;
-    /* Plain-text one-liner: location, condition, temp, feels-like, humidity, wind. */
     const char *prefix = "https://wttr.in/";
     memcpy(url, prefix, strlen(prefix)); off = strlen(prefix);
     append_encoded(url, sizeof(url), &off, city);
@@ -82,10 +109,7 @@ static char *tool_get_weather(const cJSON *input)
     snprintf(url + off, sizeof(url) - off, "%s", fmt);
 
     char *body = http_get(url);
-    if (body == NULL) {
-        return strdup("Maaf, data cuaca tidak bisa diambil sekarang.");
-    }
-    /* strip trailing newline */
+    if (body == NULL) return strdup("Maaf, data cuaca tidak bisa diambil sekarang.");
     size_t n = strlen(body);
     while (n && (body[n-1] == '\n' || body[n-1] == '\r')) body[--n] = '\0';
     ESP_LOGI(TAG, "weather: %s", body);
@@ -110,9 +134,7 @@ static char *tool_get_crypto_price(const cJSON *input)
              "https://api.coingecko.com/api/v3/simple/price?ids=%s&vs_currencies=usd,idr",
              coin);
     char *body = http_get(url);
-    if (body == NULL) {
-        return strdup("Maaf, harga kripto tidak bisa diambil sekarang.");
-    }
+    if (body == NULL) return strdup("Maaf, harga kripto tidak bisa diambil sekarang.");
 
     char *out = NULL;
     cJSON *root = cJSON_Parse(body);
@@ -123,28 +145,151 @@ static char *tool_get_crypto_price(const cJSON *input)
         cJSON *idr = obj ? cJSON_GetObjectItem(obj, "idr") : NULL;
         if (cJSON_IsNumber(usd)) {
             char tmp[160];
-            if (cJSON_IsNumber(idr)) {
+            if (cJSON_IsNumber(idr))
                 snprintf(tmp, sizeof(tmp), "%s: USD %.2f, IDR %.0f",
                          coin, usd->valuedouble, idr->valuedouble);
-            } else {
+            else
                 snprintf(tmp, sizeof(tmp), "%s: USD %.2f", coin, usd->valuedouble);
-            }
             out = strdup(tmp);
         }
         cJSON_Delete(root);
     }
-    if (out == NULL) {
-        out = strdup("Maaf, koin itu tidak ditemukan. Pakai nama CoinGecko seperti bitcoin, ethereum.");
-    }
+    if (out == NULL)
+        out = strdup("Koin tidak ditemukan. Pakai nama CoinGecko seperti bitcoin, ethereum.");
     ESP_LOGI(TAG, "crypto: %s", out);
+    return out;
+}
+
+/* ====================== Home Assistant ====================== */
+
+static bool ha_ready(void)
+{
+    return strlen(CONFIG_HA_BASE_URL) > 0 && strlen(CONFIG_HA_TOKEN) > 0;
+}
+
+/* List controllable entities + sensors using HA's template API, which renders
+ * a compact text list server-side (no huge JSON to parse on the device). */
+static char *tool_ha_list_entities(const cJSON *input)
+{
+    (void)input;
+    if (!ha_ready()) return strdup("Home Assistant belum dikonfigurasi di perangkat.");
+
+    const char *tmpl =
+        "{% for s in states if s.domain in "
+        "['light','switch','fan','climate','cover','lock','media_player',"
+        "'sensor','binary_sensor','input_boolean','scene','vacuum','humidifier'] %}"
+        "{{ s.entity_id }} = {{ s.name }} = {{ s.state }}\n"
+        "{% endfor %}";
+
+    cJSON *o = cJSON_CreateObject();
+    cJSON_AddStringToObject(o, "template", tmpl);
+    char *bodyreq = cJSON_PrintUnformatted(o);
+    cJSON_Delete(o);
+
+    char url[256];
+    snprintf(url, sizeof(url), "%s/api/template", CONFIG_HA_BASE_URL);
+    int status = 0;
+    char *resp = http_do(HTTP_METHOD_POST, url, CONFIG_HA_TOKEN, bodyreq, &status);
+    free(bodyreq);
+
+    if (resp == NULL || status != 200) {
+        free(resp);
+        return strdup("Gagal mengambil daftar device dari Home Assistant.");
+    }
+    /* Cap the size we hand back to Claude. */
+    const size_t MAXLEN = 3500;
+    if (strlen(resp) > MAXLEN) {
+        resp[MAXLEN] = '\0';
+        strcpy(resp + MAXLEN - 24, "\n...(daftar dipotong)\n");
+    }
+    ESP_LOGI(TAG, "ha entities (%u bytes)", (unsigned)strlen(resp));
+    return resp;
+}
+
+/* Call a HA service, e.g. domain=light service=turn_on entity_id=light.x. */
+static char *tool_ha_call_service(const cJSON *input)
+{
+    if (!ha_ready()) return strdup("Home Assistant belum dikonfigurasi di perangkat.");
+
+    const char *domain  = cJSON_GetStringValue(cJSON_GetObjectItem(input, "domain"));
+    const char *service = cJSON_GetStringValue(cJSON_GetObjectItem(input, "service"));
+    const char *entity  = cJSON_GetStringValue(cJSON_GetObjectItem(input, "entity_id"));
+    const cJSON *data   = cJSON_GetObjectItem(input, "data");
+    if (domain == NULL || service == NULL) {
+        return strdup("Perlu domain dan service untuk menjalankan perintah.");
+    }
+
+    cJSON *body = (data && cJSON_IsObject(data)) ? cJSON_Duplicate(data, true)
+                                                 : cJSON_CreateObject();
+    if (entity) cJSON_AddStringToObject(body, "entity_id", entity);
+    char *bstr = cJSON_PrintUnformatted(body);
+    cJSON_Delete(body);
+
+    char url[256];
+    snprintf(url, sizeof(url), "%s/api/services/%s/%s",
+             CONFIG_HA_BASE_URL, domain, service);
+    int status = 0;
+    char *resp = http_do(HTTP_METHOD_POST, url, CONFIG_HA_TOKEN, bstr, &status);
+    free(bstr);
+    free(resp);
+
+    char out[128];
+    if (status == 200 || status == 201) {
+        snprintf(out, sizeof(out), "Berhasil: %s.%s pada %s",
+                 domain, service, entity ? entity : "(area)");
+        ESP_LOGI(TAG, "%s", out);
+    } else {
+        snprintf(out, sizeof(out), "Gagal menjalankan perintah (HTTP %d).", status);
+        ESP_LOGW(TAG, "%s", out);
+    }
+    return strdup(out);
+}
+
+/* Read one entity's state (for sensors etc.). */
+static char *tool_ha_get_state(const cJSON *input)
+{
+    if (!ha_ready()) return strdup("Home Assistant belum dikonfigurasi di perangkat.");
+    const char *entity = cJSON_GetStringValue(cJSON_GetObjectItem(input, "entity_id"));
+    if (entity == NULL) return strdup("Perlu entity_id untuk membaca status.");
+
+    char url[256];
+    snprintf(url, sizeof(url), "%s/api/states/%s", CONFIG_HA_BASE_URL, entity);
+    int status = 0;
+    char *resp = http_do(HTTP_METHOD_GET, url, CONFIG_HA_TOKEN, NULL, &status);
+    if (resp == NULL || status != 200) {
+        free(resp);
+        return strdup("Status device tidak ditemukan.");
+    }
+
+    char *out = NULL;
+    cJSON *root = cJSON_Parse(resp);
+    free(resp);
+    if (root) {
+        const char *state = cJSON_GetStringValue(cJSON_GetObjectItem(root, "state"));
+        cJSON *attr = cJSON_GetObjectItem(root, "attributes");
+        const char *name = attr ? cJSON_GetStringValue(cJSON_GetObjectItem(attr, "friendly_name")) : NULL;
+        const char *unit = attr ? cJSON_GetStringValue(cJSON_GetObjectItem(attr, "unit_of_measurement")) : NULL;
+        char tmp[200];
+        snprintf(tmp, sizeof(tmp), "%s: %s%s%s",
+                 name ? name : entity,
+                 state ? state : "?",
+                 unit ? " " : "", unit ? unit : "");
+        out = strdup(tmp);
+        cJSON_Delete(root);
+    }
+    if (out == NULL) out = strdup("Status device tidak terbaca.");
+    ESP_LOGI(TAG, "ha state: %s", out);
     return out;
 }
 
 char *tool_execute(const char *name, const cJSON *input)
 {
     if (name == NULL) return NULL;
-    if (strcmp(name, "get_weather") == 0)       return tool_get_weather(input);
-    if (strcmp(name, "get_crypto_price") == 0)  return tool_get_crypto_price(input);
+    if (strcmp(name, "get_weather") == 0)        return tool_get_weather(input);
+    if (strcmp(name, "get_crypto_price") == 0)   return tool_get_crypto_price(input);
+    if (strcmp(name, "ha_list_entities") == 0)   return tool_ha_list_entities(input);
+    if (strcmp(name, "ha_call_service") == 0)    return tool_ha_call_service(input);
+    if (strcmp(name, "ha_get_state") == 0)       return tool_ha_get_state(input);
     ESP_LOGW(TAG, "unknown tool: %s", name);
     return strdup("Alat itu tidak tersedia.");
 }
