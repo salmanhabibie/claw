@@ -40,12 +40,10 @@ set(reqs
     esp_io_expander_tca9554
 )
 
-# Wake word (esp-sr) is opt-in: only required when enabled, so the default
-# build doesn't pull the large esp-sr component. Also uncomment it in
-# idf_component.yml when turning this on.
-if(CONFIG_VEE_WAKE_WORD)
-    list(APPEND reqs esp-sr)
-endif()
+# Wake word (esp-sr) is opt-in. It is NOT listed here: when enabled via
+# idf_component.yml, esp-sr becomes a managed dependency of `main` and its
+# headers/libs are added automatically. wake.c detects it with __has_include,
+# so the default build (no esp-sr) stays small and always compiles.
 
 idf_component_register(
     SRCS ${srcs}

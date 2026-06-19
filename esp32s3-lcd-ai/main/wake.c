@@ -3,7 +3,17 @@
 #include "sdkconfig.h"
 #include "esp_log.h"
 
-#if CONFIG_VEE_WAKE_WORD
+/* Only compile the real WakeNet path when the feature is enabled AND the
+ * esp-sr headers are actually present (i.e. esp-sr is a dependency). This keeps
+ * the build green even if sdkconfig still has CONFIG_VEE_WAKE_WORD=y while
+ * esp-sr is not installed. */
+#if defined(CONFIG_VEE_WAKE_WORD) && defined(__has_include)
+#  if __has_include("esp_wn_iface.h")
+#    define WAKE_ENABLED 1
+#  endif
+#endif
+
+#ifdef WAKE_ENABLED
 
 #include "esp_wn_iface.h"
 #include "esp_wn_models.h"
@@ -60,7 +70,7 @@ bool wake_detect(const int16_t *chunk)
     return s_wn->detect(s_data, (int16_t *)chunk) == WAKENET_DETECTED;
 }
 
-#else  /* !CONFIG_VEE_WAKE_WORD : stubs so the firmware still links */
+#else  /* wake word off / esp-sr absent : stubs so the firmware still links */
 
 bool wake_init(void)            { return false; }
 int  wake_chunk_samples(void)   { return 0; }
