@@ -23,8 +23,8 @@ static const char *TAG = "app";
 /* TLS handshake + audio buffers need a generous stack. */
 #define VOICE_TASK_STACK (1024 * 32)
 
-/* How long to record after the TALK button is tapped. */
-#define RECORD_SECONDS 5
+/* Upper bound for one recording; voice-activity detection usually stops sooner. */
+#define RECORD_SECONDS 8
 
 static SemaphoreHandle_t s_talk_sem;
 
@@ -68,7 +68,7 @@ static void voice_task(void *arg)
             continue;
         }
 
-        chat_ui_set_status("Mendengarkan... bicara sekarang!");
+        chat_ui_set_status("Mendengarkan... (berhenti otomatis saat diam)");
         chat_ui_set_state(UI_LISTENING);
         size_t n = mic_record(pcm, RECORD_SECONDS);
 

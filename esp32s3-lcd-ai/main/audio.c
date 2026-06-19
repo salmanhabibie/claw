@@ -2,6 +2,7 @@
 #include "bsp_pins.h"
 
 #include <math.h>
+#include <stdbool.h>
 
 #include "driver/i2s_std.h"
 #include "freertos/FreeRTOS.h"
@@ -141,39 +142,72 @@ esp_err_t mic_init(void)
     return err;
 }
 
-size_t mic_record(int16_t *dest, int seconds)
+size_t mic_record(int16_t *dest, int max_seconds)
 {
-    if (s_rx == NULL || dest == NULL || seconds <= 0) {
+    if (s_rx == NULL || dest == NULL || max_seconds <= 0) {
         return 0;
     }
-    const size_t target = (size_t)seconds * MIC_SAMPLE_RATE;
+    const size_t cap = (size_t)max_seconds * MIC_SAMPLE_RATE;
     if (i2s_channel_enable(s_rx) != ESP_OK) {
         return 0;
     }
 
-    enum { CHUNK = 512 };
+    enum { CHUNK = 512 };                          /* ~32 ms @ 16 kHz */
+    const int CHUNK_MS = (CHUNK * 1000) / MIC_SAMPLE_RATE;
+    const int BASELINE_CHUNKS = 8;                 /* ~256 ms to gauge noise floor */
+    const int TRAIL_MS = 1200;                     /* stop this long after speech ends */
+    const int MIN_MS = 700;                        /* never stop before this */
+
     int32_t raw[CHUNK];
     size_t got = 0;
-    while (got < target) {
-        size_t want = (target - got < CHUNK) ? (target - got) : CHUNK;
+    long baseline_sum = 0;
+    int  baseline_n = 0;
+    long threshold = 0;
+    bool speech = false;
+    int  silence_ms = 0, elapsed_ms = 0;
+
+    while (got < cap) {
+        size_t want = (cap - got < CHUNK) ? (cap - got) : CHUNK;
         size_t bytes_read = 0;
-        esp_err_t err = i2s_channel_read(s_rx, raw, want * sizeof(int32_t),
-                                         &bytes_read, pdMS_TO_TICKS(1000));
-        if (err != ESP_OK) {
+        if (i2s_channel_read(s_rx, raw, want * sizeof(int32_t),
+                             &bytes_read, pdMS_TO_TICKS(1000)) != ESP_OK) {
             break;
         }
         size_t n = bytes_read / sizeof(int32_t);
+        long absum = 0;
         for (size_t i = 0; i < n; i++) {
             int32_t v = raw[i] >> 12;     /* 32-bit mic word -> ~16-bit sample */
             if (v > INT16_MAX)       v = INT16_MAX;
             else if (v < -INT16_MAX) v = -INT16_MAX;
             dest[got + i] = (int16_t)v;
+            absum += (v < 0) ? -v : v;
         }
+        long energy = n ? absum / (long)n : 0;
         got += n;
+        elapsed_ms += CHUNK_MS;
+
+        /* Calibrate the noise floor from the first few chunks (assumed quiet). */
+        if (baseline_n < BASELINE_CHUNKS) {
+            baseline_sum += energy;
+            if (++baseline_n == BASELINE_CHUNKS) {
+                threshold = (baseline_sum / baseline_n) * 3 + 350;
+            }
+            continue;
+        }
+
+        /* Voice-activity: once speech starts, stop after a trailing silence.
+         * If speech is never detected, we fall through and record the full cap. */
+        if (energy > threshold) { speech = true; silence_ms = 0; }
+        else if (speech)        { silence_ms += CHUNK_MS; }
+
+        if (speech && silence_ms >= TRAIL_MS && elapsed_ms >= MIN_MS) {
+            break;
+        }
     }
+
     i2s_channel_disable(s_rx);
-    ESP_LOGI(TAG, "mic recorded %u samples (%.1fs)", (unsigned)got,
-             (float)got / MIC_SAMPLE_RATE);
+    ESP_LOGI(TAG, "mic recorded %u samples (%.1fs)%s", (unsigned)got,
+             (float)got / MIC_SAMPLE_RATE, speech ? "" : " [no speech detected]");
     return got;
 }
 

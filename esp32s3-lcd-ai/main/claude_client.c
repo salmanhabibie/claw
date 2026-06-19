@@ -160,9 +160,36 @@ static char *build_body(const cJSON *messages)
     return body;
 }
 
+/* Clean conversation memory: only finished user/assistant text turns (no tool
+ * intermediates), so it stays valid and easy to trim. Kept across calls. */
+#define MAX_HISTORY_MSGS 8     /* 4 exchanges; must stay even (user/assistant) */
+static cJSON *s_history;
+
+static void history_add(const char *role, const char *content)
+{
+    cJSON *m = cJSON_CreateObject();
+    cJSON_AddStringToObject(m, "role", role);
+    cJSON_AddStringToObject(m, "content", content);
+    cJSON_AddItemToArray(s_history, m);
+}
+
+static void history_trim(void)
+{
+    /* Drop whole exchanges from the front so it still starts with a user turn. */
+    while (cJSON_GetArraySize(s_history) > MAX_HISTORY_MSGS) {
+        cJSON_DeleteItemFromArray(s_history, 0);
+        cJSON_DeleteItemFromArray(s_history, 0);
+    }
+}
+
 char *claude_ask(const char *prompt)
 {
-    cJSON *messages = cJSON_CreateArray();
+    if (s_history == NULL) {
+        s_history = cJSON_CreateArray();
+    }
+
+    /* Working list = remembered turns + this new user turn. */
+    cJSON *messages = cJSON_Duplicate(s_history, true);
     cJSON *um = cJSON_CreateObject();
     cJSON_AddStringToObject(um, "role", "user");
     cJSON_AddStringToObject(um, "content", prompt);
@@ -245,6 +272,13 @@ char *claude_ask(const char *prompt)
         cJSON_AddItemToArray(messages, urm);
 
         cJSON_Delete(rroot);
+    }
+
+    /* Commit only the clean turns to memory (the tool round-trips are dropped). */
+    if (result != NULL) {
+        history_add("user", prompt);
+        history_add("assistant", result);
+        history_trim();
     }
 
     cJSON_Delete(messages);
