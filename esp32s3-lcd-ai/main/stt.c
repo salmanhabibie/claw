@@ -65,8 +65,13 @@ static void wav_header(uint8_t *h, uint32_t pcm_bytes, uint32_t rate)
 
 char *stt_transcribe(const int16_t *pcm, size_t nsamples)
 {
-    if (strlen(CONFIG_ELEVENLABS_API_KEY) == 0) {
-        ESP_LOGE(TAG, "no ElevenLabs API key configured");
+#if CONFIG_STT_PROVIDER_OPENAI
+    const char *api_key = CONFIG_OPENAI_API_KEY;
+#else
+    const char *api_key = CONFIG_ELEVENLABS_API_KEY;
+#endif
+    if (strlen(api_key) == 0) {
+        ESP_LOGE(TAG, "no STT API key configured");
         return NULL;
     }
     if (pcm == NULL || nsamples < MIC_SAMPLE_RATE / 4) {   /* < ~0.25s: nothing useful */
@@ -76,16 +81,33 @@ char *stt_transcribe(const int16_t *pcm, size_t nsamples)
 
     const uint32_t pcm_bytes = (uint32_t)(nsamples * sizeof(int16_t));
 
-    /* multipart/form-data: model_id field + the WAV file. */
-    char pre[256];
-    int pre_len = snprintf(pre, sizeof(pre),
-        "--%s\r\n"
-        "Content-Disposition: form-data; name=\"model_id\"\r\n\r\n"
-        "%s\r\n"
-        "--%s\r\n"
-        "Content-Disposition: form-data; name=\"file\"; filename=\"rec.wav\"\r\n"
+    /* multipart/form-data: provider-specific text fields + the WAV file. Both
+     * ElevenLabs and the OpenAI-compatible API return {"text": ...}. */
+    char pre[384];
+    int pre_len;
+#if CONFIG_STT_PROVIDER_OPENAI
+    if (strlen(CONFIG_STT_LANGUAGE) > 0) {
+        pre_len = snprintf(pre, sizeof(pre),
+            "--%s\r\nContent-Disposition: form-data; name=\"model\"\r\n\r\n%s\r\n"
+            "--%s\r\nContent-Disposition: form-data; name=\"language\"\r\n\r\n%s\r\n"
+            "--%s\r\nContent-Disposition: form-data; name=\"file\"; filename=\"rec.wav\"\r\n"
+            "Content-Type: audio/wav\r\n\r\n",
+            STT_BOUNDARY, CONFIG_STT_OPENAI_MODEL,
+            STT_BOUNDARY, CONFIG_STT_LANGUAGE, STT_BOUNDARY);
+    } else {
+        pre_len = snprintf(pre, sizeof(pre),
+            "--%s\r\nContent-Disposition: form-data; name=\"model\"\r\n\r\n%s\r\n"
+            "--%s\r\nContent-Disposition: form-data; name=\"file\"; filename=\"rec.wav\"\r\n"
+            "Content-Type: audio/wav\r\n\r\n",
+            STT_BOUNDARY, CONFIG_STT_OPENAI_MODEL, STT_BOUNDARY);
+    }
+#else
+    pre_len = snprintf(pre, sizeof(pre),
+        "--%s\r\nContent-Disposition: form-data; name=\"model_id\"\r\n\r\n%s\r\n"
+        "--%s\r\nContent-Disposition: form-data; name=\"file\"; filename=\"rec.wav\"\r\n"
         "Content-Type: audio/wav\r\n\r\n",
         STT_BOUNDARY, STT_MODEL, STT_BOUNDARY);
+#endif
 
     char post[64];
     int post_len = snprintf(post, sizeof(post), "\r\n--%s--\r\n", STT_BOUNDARY);
@@ -104,7 +126,11 @@ char *stt_transcribe(const int16_t *pcm, size_t nsamples)
 
     resp_t resp = {0};
     esp_http_client_config_t config = {
+#if CONFIG_STT_PROVIDER_OPENAI
+        .url = CONFIG_STT_OPENAI_URL,
+#else
         .url = STT_URL,
+#endif
         .method = HTTP_METHOD_POST,
         .event_handler = http_event,
         .user_data = &resp,
@@ -114,7 +140,15 @@ char *stt_transcribe(const int16_t *pcm, size_t nsamples)
         .buffer_size_tx = 2048,
     };
     esp_http_client_handle_t client = esp_http_client_init(&config);
-    esp_http_client_set_header(client, "xi-api-key", CONFIG_ELEVENLABS_API_KEY);
+#if CONFIG_STT_PROVIDER_OPENAI
+    char *auth = malloc(strlen(api_key) + 8);
+    if (auth != NULL) {
+        snprintf(auth, strlen(api_key) + 8, "Bearer %s", api_key);
+        esp_http_client_set_header(client, "Authorization", auth);
+    }
+#else
+    esp_http_client_set_header(client, "xi-api-key", api_key);
+#endif
     esp_http_client_set_header(client, "Content-Type",
                                "multipart/form-data; boundary=" STT_BOUNDARY);
     esp_http_client_set_post_field(client, (const char *)body, body_len);
@@ -123,6 +157,9 @@ char *stt_transcribe(const int16_t *pcm, size_t nsamples)
     int status = esp_http_client_get_status_code(client);
     esp_http_client_cleanup(client);
     free(body);
+#if CONFIG_STT_PROVIDER_OPENAI
+    free(auth);
+#endif
 
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "STT request failed: %s", esp_err_to_name(err));

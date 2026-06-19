@@ -59,6 +59,48 @@ menu "AI Assistant Configuration"
             TTS model. eleven_multilingual_v2 supports Indonesian and many
             other languages.
 
+    choice
+        prompt "Speech-to-text (STT) provider"
+        default STT_PROVIDER_ELEVENLABS
+        help
+            Which service transcribes the microphone audio.
+
+        config STT_PROVIDER_ELEVENLABS
+            bool "ElevenLabs (scribe)"
+        config STT_PROVIDER_OPENAI
+            bool "OpenAI-compatible (OpenAI / Venice / Groq)"
+    endchoice
+
+    config OPENAI_API_KEY
+        string "OpenAI-compatible API key (Bearer)"
+        default ""
+        help
+            API key for the OpenAI-compatible STT endpoint (OpenAI sk-...,
+            Venice, Groq, etc.). Used only when that STT provider is selected.
+            Compiled into the firmware via sdkconfig; do not commit a real key.
+
+    config STT_OPENAI_URL
+        string "OpenAI-compatible STT endpoint URL"
+        default "https://api.openai.com/v1/audio/transcriptions"
+        help
+            Full transcription URL. OpenAI default shown. Groq:
+            https://api.groq.com/openai/v1/audio/transcriptions
+            Venice: https://api.venice.ai/api/v1/audio/transcriptions
+
+    config STT_OPENAI_MODEL
+        string "OpenAI-compatible STT model"
+        default "gpt-4o-mini-transcribe"
+        help
+            OpenAI: gpt-4o-mini-transcribe or whisper-1. Groq: whisper-large-v3.
+            Venice: e.g. nvidia/parakeet-tdt-0.6b-v3.
+
+    config STT_LANGUAGE
+        string "STT language hint (ISO-639-1, blank = auto)"
+        default "id"
+        help
+            Optional language hint sent to the STT, e.g. id for Indonesian.
+            Leave blank to auto-detect.
+
     config HA_BASE_URL
         string "Home Assistant base URL"
         default ""
