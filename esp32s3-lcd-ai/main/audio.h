@@ -29,3 +29,11 @@ esp_err_t mic_init(void);
 /* Record `seconds` of audio into `dest` as 16-bit mono PCM at 16 kHz. `dest`
  * must hold at least seconds*MIC_SAMPLE_RATE samples. Returns samples captured. */
 size_t mic_record(int16_t *dest, int seconds);
+
+/* Low-level continuous capture, used by the wake-word loop. Start/stop enable
+ * and disable the I2S RX channel; mic_read() blocks until `nsamp` 16-bit mono
+ * samples are filled (or an I2S error). Do NOT mix with mic_record() while a
+ * stream is started — stop it first. */
+esp_err_t mic_stream_start(void);
+void      mic_stream_stop(void);
+size_t    mic_read(int16_t *dest, size_t nsamp);

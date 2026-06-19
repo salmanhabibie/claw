@@ -74,4 +74,16 @@ menu "AI Assistant Configuration"
             Long-lived access tokens). Compiled into the firmware; do not
             commit a real token.
 
+    config VEE_WAKE_WORD
+        bool "Enable hands-free wake word (esp-sr WakeNet)"
+        default y
+        help
+            Listen continuously for a wake phrase (e.g. "Alexa") so a
+            conversation can start without tapping. Requires the esp-sr
+            component, a 'model' partition, and a wake word selected under
+            "ESP Speech Recognition". If disabled, only tap-to-talk is used.
+
+            If the build or wake word misbehaves, set this to 'n' to fall
+            back to the known-good tap-only firmware.
+
 endmenu

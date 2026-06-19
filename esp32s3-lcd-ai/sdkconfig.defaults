@@ -25,3 +25,11 @@ CONFIG_ESP_MAIN_TASK_STACK_SIZE=16384
 # ---- LVGL: larger fonts for the idle clock ----
 CONFIG_LV_FONT_MONTSERRAT_28=y
 CONFIG_LV_FONT_MONTSERRAT_48=y
+
+# ---- esp-sr wake word (only applies to a fresh build; existing sdkconfig wins).
+# Pick the wake phrase in `idf.py menuconfig` -> ESP Speech Recognition.
+# Default to "Alexa" (a free built-in English phrase) and skip MultiNet to
+# save flash. Models are flashed into the 'model' partition. ----
+CONFIG_SR_WN_WN9_ALEXA=y
+CONFIG_SR_MN_CHINESE_NONE=y
+CONFIG_SR_MN_ENGLISH_NONE=y

@@ -21,6 +21,7 @@
 #include "audio.h"
 #include "tts.h"
 #include "stt.h"
+#include "wake.h"
 
 static const char *TAG = "app";
 
@@ -33,6 +34,7 @@ static const char *TAG = "app";
 #define FOLLOWUP_SECONDS 6
 
 static SemaphoreHandle_t s_talk_sem;
+static bool s_wake_ok;          /* true if a wake word model loaded */
 
 /* Stop here without rebooting, logging why (keeps the USB console alive). */
 static void halt(const char *why)
@@ -43,6 +45,45 @@ static void halt(const char *why)
     }
 }
 
+/* Block until a conversation should start: either the wake word is heard
+ * (hands-free) or the screen is tapped. Falls back to tap-only if the wake
+ * word model isn't available. */
+static void wait_for_trigger(void)
+{
+    chat_ui_set_response(s_wake_ok ? "Ucapkan kata pemicu atau tap"
+                                   : "Tap untuk bicara");
+    if (!s_wake_ok) {
+        xSemaphoreTake(s_talk_sem, portMAX_DELAY);
+        return;
+    }
+
+    int n = wake_chunk_samples();
+    int16_t *buf = (n > 0)
+        ? heap_caps_malloc((size_t)n * sizeof(int16_t), MALLOC_CAP_INTERNAL)
+        : NULL;
+    if (buf == NULL || mic_stream_start() != ESP_OK) {
+        free(buf);
+        xSemaphoreTake(s_talk_sem, portMAX_DELAY);   /* degrade to tap-only */
+        return;
+    }
+
+    for (;;) {
+        if (xSemaphoreTake(s_talk_sem, 0) == pdTRUE) {
+            break;                                   /* tapped */
+        }
+        if (mic_read(buf, (size_t)n) != (size_t)n) {
+            continue;
+        }
+        if (wake_detect(buf)) {
+            ESP_LOGI(TAG, "wake word detected");
+            break;
+        }
+    }
+
+    mic_stream_stop();
+    free(buf);
+}
+
 /* One full voice turn, triggered by the TALK button:
  *   record mic -> ElevenLabs STT -> Claude -> ElevenLabs TTS (spoken reply). */
 static void voice_task(void *arg)
@@ -51,19 +92,25 @@ static void voice_task(void *arg)
     ESP_LOGI(TAG, "voice task started (free internal heap=%u)",
              (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
 
+    /* Load the wake word model (non-fatal: tap-to-talk still works). */
+    s_wake_ok = wake_init();
+    ESP_LOGI(TAG, "wake word: %s", s_wake_ok ? "enabled" : "disabled (tap only)");
+
     /* Spoken greeting once, on this task's large (TLS-capable) stack. */
     if (strlen(CONFIG_ELEVENLABS_API_KEY) > 0) {
         chat_ui_set_status("Tes suara...");
         chat_ui_set_state(UI_SPEAKING);
-        tts_say("Halo! Aku Vee, asistenmu. Tap layar lalu bicara setelah "
-                "muncul tulisan mendengarkan.");
+        tts_say(s_wake_ok
+                ? "Halo! Aku Vee. Sebut kata pemicu atau tap layar, lalu bicara."
+                : "Halo! Aku Vee, asistenmu. Tap layar lalu bicara setelah "
+                  "muncul tulisan mendengarkan.");
     }
     chat_ui_set_status("Tap untuk bicara");
     chat_ui_set_state(UI_IDLE);
 
     for (;;) {
-        /* Wait for a tap to begin a conversation. */
-        xSemaphoreTake(s_talk_sem, portMAX_DELAY);
+        /* Wait for the wake word or a tap to begin a conversation. */
+        wait_for_trigger();
 
         /* Conversation loop: after each spoken reply we listen again for a
          * follow-up. Staying silent (empty transcript) ends the conversation. */

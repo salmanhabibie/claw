@@ -228,6 +228,48 @@ size_t mic_record(int16_t *dest, int max_seconds)
     return got;
 }
 
+esp_err_t mic_stream_start(void)
+{
+    return (s_rx != NULL) ? i2s_channel_enable(s_rx) : ESP_FAIL;
+}
+
+void mic_stream_stop(void)
+{
+    if (s_rx != NULL) {
+        i2s_channel_disable(s_rx);
+    }
+}
+
+size_t mic_read(int16_t *dest, size_t nsamp)
+{
+    if (s_rx == NULL || dest == NULL) {
+        return 0;
+    }
+    size_t got = 0;
+    int32_t raw[256];
+    while (got < nsamp) {
+        size_t want = nsamp - got;
+        if (want > 256) want = 256;
+        size_t bytes_read = 0;
+        if (i2s_channel_read(s_rx, raw, want * sizeof(int32_t),
+                             &bytes_read, pdMS_TO_TICKS(1000)) != ESP_OK) {
+            break;
+        }
+        size_t n = bytes_read / sizeof(int32_t);
+        if (n == 0) {
+            break;
+        }
+        for (size_t i = 0; i < n; i++) {
+            int32_t v = raw[i] >> 12;     /* 32-bit mic word -> ~16-bit sample */
+            if (v > INT16_MAX)       v = INT16_MAX;
+            else if (v < -INT16_MAX) v = -INT16_MAX;
+            dest[got + i] = (int16_t)v;
+        }
+        got += n;
+    }
+    return got;
+}
+
 void audio_play_mono16(const uint8_t *data, size_t len)
 {
     if (s_tx == NULL || data == NULL || len < 2) {

@@ -10,6 +10,7 @@ idf_component_register(
         "tts.c"
         "stt.c"
         "tools.c"
+        "wake.c"
     INCLUDE_DIRS "."
     REQUIRES
         # networking + Claude API
@@ -37,4 +38,6 @@ idf_component_register(
         esp_lcd_touch_spd2010
         esp_io_expander
         esp_io_expander_tca9554
+        # wake word (esp-sr WakeNet); see idf_component.yml
+        esp-sr
 )
