@@ -14,6 +14,11 @@ static i2s_chan_handle_t s_tx;
  * This matches the Waveshare XiaoZhi config for the 1.46/1.46B board. */
 #define AUDIO_SAMPLE_RATE 24000
 
+/* Digital volume, as a Q16 gain. 65536 == unity (16-bit sample left-shifted
+ * into the 32-bit slot). The amp/speaker on this board is quiet at unity, so
+ * boost and saturate. Raise for louder (more clipping), lower for cleaner. */
+#define AUDIO_GAIN_Q16    (65536 * 4)
+
 esp_err_t audio_init(void)
 {
     i2s_chan_config_t chan_cfg = I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_AUTO, I2S_ROLE_MASTER);
@@ -95,15 +100,19 @@ void audio_play_mono16(const uint8_t *data, size_t len)
     const int16_t *mono = (const int16_t *)data;
     size_t nsamp = len / 2;
 
-    /* Each 16-bit sample is left-justified into a 32-bit word (sample << 16),
-     * which is what the 32-bit-slot I2S frame on this board expects. */
+    /* Each 16-bit sample is scaled by the Q16 volume gain into a 32-bit word
+     * (unity == sample << 16), saturating to avoid overflow, which is what the
+     * 32-bit-slot I2S frame on this board expects. */
     enum { BLK = 256 };
     int32_t out[BLK];
     size_t i = 0;
     while (i < nsamp) {
         size_t n = (nsamp - i < BLK) ? (nsamp - i) : BLK;
         for (size_t j = 0; j < n; j++) {
-            out[j] = (int32_t)mono[i + j] << 16;
+            int64_t v = (int64_t)mono[i + j] * AUDIO_GAIN_Q16;
+            if (v > INT32_MAX)      v = INT32_MAX;
+            else if (v < INT32_MIN) v = INT32_MIN;
+            out[j] = (int32_t)v;
         }
         size_t written = 0;
         i2s_channel_write(s_tx, out, n * sizeof(int32_t), &written, portMAX_DELAY);
