@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <string.h>
+#include <strings.h>
 #include <stdbool.h>
 #include <stdlib.h>
 #include <ctype.h>
@@ -33,6 +34,8 @@ static const char *TAG = "app";
 #define RECORD_SECONDS 8
 /* Shorter window when auto-listening for a follow-up (silence ends the chat). */
 #define FOLLOWUP_SECONDS 6
+/* Window for one STT wake-listen capture ("Wanda" plus an optional command). */
+#define WAKE_LISTEN_SECONDS 4
 
 static SemaphoreHandle_t s_talk_sem;
 static bool s_wake_ok;          /* true if a wake word model loaded */
@@ -72,43 +75,100 @@ static bool is_stop_command(const char *text)
     return false;
 }
 
-/* Block until a conversation should start: either the wake word is heard
- * (hands-free) or the screen is tapped. Falls back to tap-only if the wake
- * word model isn't available. */
-static void wait_for_trigger(void)
+/* Case-insensitive substring search. */
+static const char *ci_strstr(const char *hay, const char *needle)
 {
-    chat_ui_set_response(s_wake_ok ? "Ucapkan kata pemicu atau tap"
-                                   : "Tap untuk bicara");
-    if (!s_wake_ok) {
-        xSemaphoreTake(s_talk_sem, portMAX_DELAY);
-        return;
+    size_t nl = strlen(needle);
+    for (; *hay; hay++) {
+        if (strncasecmp(hay, needle, nl) == 0) return hay;
     }
+    return NULL;
+}
 
-    int n = wake_chunk_samples();
-    int16_t *buf = (n > 0)
-        ? heap_caps_malloc((size_t)n * sizeof(int16_t), MALLOC_CAP_INTERNAL)
-        : NULL;
-    if (buf == NULL || mic_stream_start() != ESP_OK) {
+/* If `transcript` contains the wake word ("Wanda" + a few mishears), return
+ * true. If a command was spoken after it (e.g. "Wanda, nyalakan lampu"), set
+ * *cmd to a heap copy of that command so it can be acted on immediately. */
+static bool wake_word_heard(const char *transcript, char **cmd)
+{
+    if (cmd) *cmd = NULL;
+    if (transcript == NULL) return false;
+
+    static const char *kw[] = { "wanda", "wonda", "wandah", "wanto", NULL };
+    const char *hit = NULL;
+    size_t hitlen = 0;
+    for (int i = 0; kw[i] != NULL; i++) {
+        const char *p = ci_strstr(transcript, kw[i]);
+        if (p != NULL && (hit == NULL || p < hit)) {
+            hit = p;
+            hitlen = strlen(kw[i]);
+        }
+    }
+    if (hit == NULL) return false;
+
+    const char *after = hit + hitlen;
+    while (*after != '\0' && !isalpha((unsigned char)*after)) after++;
+    if (cmd != NULL && strlen(after) >= 3) {
+        *cmd = strdup(after);   /* command spoken in the same breath */
+    }
+    return true;
+}
+
+/* Block until a conversation should start. Returns a heap command string if one
+ * was captured with the wake word (caller frees), else NULL. Order of triggers:
+ * esp-sr wake word, then STT "Wanda" wake (if enabled), then a screen tap. */
+static char *wait_for_trigger(void)
+{
+    /* 1. Offline esp-sr wake word, if a model is loaded. */
+    if (s_wake_ok) {
+        chat_ui_set_response("Ucapkan kata pemicu atau tap");
+        int n = wake_chunk_samples();
+        int16_t *buf = (n > 0)
+            ? heap_caps_malloc((size_t)n * sizeof(int16_t), MALLOC_CAP_INTERNAL)
+            : NULL;
+        if (buf != NULL && mic_stream_start() == ESP_OK) {
+            for (;;) {
+                if (xSemaphoreTake(s_talk_sem, 0) == pdTRUE) break;
+                if (mic_read(buf, (size_t)n) != (size_t)n) continue;
+                if (wake_detect(buf)) { ESP_LOGI(TAG, "wake word detected"); break; }
+            }
+            mic_stream_stop();
+            free(buf);
+            return NULL;
+        }
         free(buf);
-        xSemaphoreTake(s_talk_sem, portMAX_DELAY);   /* degrade to tap-only */
-        return;
+        xSemaphoreTake(s_talk_sem, portMAX_DELAY);   /* degrade to tap */
+        return NULL;
     }
 
-    for (;;) {
-        if (xSemaphoreTake(s_talk_sem, 0) == pdTRUE) {
-            break;                                   /* tapped */
+    /* 2. STT-based "Wanda" wake (costs an STT call per spoken utterance). */
+    if (bsp_nvs_get_u8("wake", 1)) {
+        chat_ui_set_response("Panggil \"Wanda\" atau tap");
+        int16_t *pcm = heap_caps_malloc(
+            (size_t)WAKE_LISTEN_SECONDS * MIC_SAMPLE_RATE * sizeof(int16_t),
+            MALLOC_CAP_SPIRAM);
+        if (pcm != NULL) {
+            char *cmd = NULL;
+            for (;;) {
+                if (xSemaphoreTake(s_talk_sem, 0) == pdTRUE) break;   /* tapped */
+                bool speech = false;
+                size_t n = mic_record_vad(pcm, WAKE_LISTEN_SECONDS, &speech);
+                if (!speech) continue;            /* silence: skip the STT call */
+                char *t = stt_transcribe(pcm, n);
+                if (t != NULL) ESP_LOGI(TAG, "wake-listen heard: '%s'", t);
+                if (wake_word_heard(t, &cmd)) { free(t); break; }
+                free(t);
+            }
+            free(pcm);
+            return cmd;
         }
-        if (mic_read(buf, (size_t)n) != (size_t)n) {
-            continue;
-        }
-        if (wake_detect(buf)) {
-            ESP_LOGI(TAG, "wake word detected");
-            break;
-        }
+        xSemaphoreTake(s_talk_sem, portMAX_DELAY);   /* OOM: degrade to tap */
+        return NULL;
     }
 
-    mic_stream_stop();
-    free(buf);
+    /* 3. Tap only. */
+    chat_ui_set_response("Tap untuk bicara");
+    xSemaphoreTake(s_talk_sem, portMAX_DELAY);
+    return NULL;
 }
 
 /* One full voice turn, triggered by the TALK button:
@@ -124,11 +184,12 @@ static void voice_task(void *arg)
     ESP_LOGI(TAG, "wake word: %s", s_wake_ok ? "enabled" : "disabled (tap only)");
 
     /* Spoken greeting once, on this task's large (TLS-capable) stack. */
+    bool wake_active = s_wake_ok || bsp_nvs_get_u8("wake", 1);
     if (strlen(CONFIG_ELEVENLABS_API_KEY) > 0) {
         chat_ui_set_status("Tes suara...");
         chat_ui_set_state(UI_SPEAKING);
-        tts_say(s_wake_ok
-                ? "Halo! Aku Wanda. Sebut kata pemicu atau tap layar, lalu bicara."
+        tts_say(wake_active
+                ? "Halo! Aku Wanda. Panggil namaku atau tap layar, lalu bicara."
                 : "Halo! Aku Wanda, asistenmu. Tap layar lalu bicara setelah "
                   "muncul tulisan mendengarkan.");
     }
@@ -136,32 +197,38 @@ static void voice_task(void *arg)
     chat_ui_set_state(UI_IDLE);
 
     for (;;) {
-        /* Wait for the wake word or a tap to begin a conversation. */
-        wait_for_trigger();
+        /* Wait for the wake word or a tap. May return a command captured in the
+         * same breath as the wake word (e.g. "Wanda, nyalakan lampu"). */
+        char *initial = wait_for_trigger();
 
         /* Conversation loop: after each spoken reply we listen again for a
          * follow-up. Staying silent (empty transcript) ends the conversation. */
         bool first = true;
         for (;;) {
-            int max_rec = first ? RECORD_SECONDS : FOLLOWUP_SECONDS;
-            first = false;
+            char *text;
 
-            int16_t *pcm = heap_caps_malloc(
-                (size_t)RECORD_SECONDS * MIC_SAMPLE_RATE * sizeof(int16_t),
-                MALLOC_CAP_SPIRAM);
-            if (pcm == NULL) {
-                chat_ui_set_status("Memori penuh");
-                break;
+            if (first && initial != NULL) {
+                /* Use the command spoken with the wake word; skip recording. */
+                text = initial;
+                initial = NULL;
+            } else {
+                int max_rec = first ? RECORD_SECONDS : FOLLOWUP_SECONDS;
+                int16_t *pcm = heap_caps_malloc(
+                    (size_t)RECORD_SECONDS * MIC_SAMPLE_RATE * sizeof(int16_t),
+                    MALLOC_CAP_SPIRAM);
+                if (pcm == NULL) {
+                    chat_ui_set_status("Memori penuh");
+                    break;
+                }
+                chat_ui_set_status("Mendengarkan... (diam untuk berhenti)");
+                chat_ui_set_state(UI_LISTENING);
+                size_t n = mic_record(pcm, max_rec);
+                chat_ui_set_status("Memproses suara...");
+                chat_ui_set_state(UI_THINKING);
+                text = stt_transcribe(pcm, n);
+                free(pcm);
             }
-
-            chat_ui_set_status("Mendengarkan... (diam untuk berhenti)");
-            chat_ui_set_state(UI_LISTENING);
-            size_t n = mic_record(pcm, max_rec);
-
-            chat_ui_set_status("Memproses suara...");
-            chat_ui_set_state(UI_THINKING);
-            char *text = stt_transcribe(pcm, n);
-            free(pcm);
+            first = false;
 
             if (text == NULL || text[0] == '\0') {
                 free(text);
@@ -176,6 +243,7 @@ static void voice_task(void *arg)
             }
 
             chat_ui_set_status("Berpikir...");
+            chat_ui_set_state(UI_THINKING);
             char *reply = claude_ask(text);
             free(text);
             if (reply == NULL) {
@@ -193,6 +261,7 @@ static void voice_task(void *arg)
             vTaskDelay(pdMS_TO_TICKS(300));
         }
 
+        free(initial);   /* normally already consumed/NULL; safe either way */
         chat_ui_set_status("Tap untuk bicara");
         chat_ui_set_state(UI_IDLE);
         xSemaphoreTake(s_talk_sem, 0);   /* drop taps that arrived mid-chat */

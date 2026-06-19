@@ -211,6 +211,13 @@ static void bri_slider_cb(lv_event_t *e)
     lv_label_set_text_fmt(s_bri_val, "Kecerahan  %d%%", v);
 }
 
+static void wake_switch_cb(lv_event_t *e)
+{
+    lv_obj_t *sw = lv_event_get_target(e);
+    bool on = lv_obj_has_state(sw, LV_STATE_CHECKED);
+    bsp_nvs_set_u8("wake", on ? 1 : 0);   /* applied on the next idle cycle */
+}
+
 static void settings_open_cb(lv_event_t *e)
 {
     (void)e;
@@ -272,6 +279,14 @@ static void build_settings(lv_obj_t *scr)
     lv_slider_set_range(bsl, 10, 100);   /* never fully dark */
     lv_slider_set_value(bsl, bri, LV_ANIM_OFF);
     lv_obj_add_event_cb(bsl, bri_slider_cb, LV_EVENT_VALUE_CHANGED, NULL);
+
+    /* Wake-word listening toggle ("Wanda" via STT; uses data while on). */
+    lv_obj_t *wlbl = lv_label_create(s_settings);
+    lv_label_set_text(wlbl, "Dengar \"Wanda\"");
+    lv_obj_set_style_text_color(wlbl, lv_color_hex(0xe6edf3), 0);
+    lv_obj_t *wsw = lv_switch_create(s_settings);
+    if (bsp_nvs_get_u8("wake", 1)) lv_obj_add_state(wsw, LV_STATE_CHECKED);
+    lv_obj_add_event_cb(wsw, wake_switch_cb, LV_EVENT_VALUE_CHANGED, NULL);
 
     /* Close */
     lv_obj_t *btn = lv_button_create(s_settings);

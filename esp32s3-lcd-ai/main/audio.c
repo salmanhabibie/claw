@@ -161,6 +161,12 @@ esp_err_t mic_init(void)
 
 size_t mic_record(int16_t *dest, int max_seconds)
 {
+    return mic_record_vad(dest, max_seconds, NULL);
+}
+
+size_t mic_record_vad(int16_t *dest, int max_seconds, bool *speech_out)
+{
+    if (speech_out) *speech_out = false;
     if (s_rx == NULL || dest == NULL || max_seconds <= 0) {
         return 0;
     }
@@ -225,6 +231,7 @@ size_t mic_record(int16_t *dest, int max_seconds)
     i2s_channel_disable(s_rx);
     ESP_LOGI(TAG, "mic recorded %u samples (%.1fs)%s", (unsigned)got,
              (float)got / MIC_SAMPLE_RATE, speech ? "" : " [no speech detected]");
+    if (speech_out) *speech_out = speech;
     return got;
 }
 

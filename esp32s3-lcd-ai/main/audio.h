@@ -3,6 +3,7 @@
 #include "esp_err.h"
 #include <stddef.h>
 #include <stdint.h>
+#include <stdbool.h>
 
 /* Initialize the I2S TX path to the PCM5101 DAC (speaker), 16 kHz. */
 esp_err_t audio_init(void);
@@ -29,6 +30,10 @@ esp_err_t mic_init(void);
 /* Record `seconds` of audio into `dest` as 16-bit mono PCM at 16 kHz. `dest`
  * must hold at least seconds*MIC_SAMPLE_RATE samples. Returns samples captured. */
 size_t mic_record(int16_t *dest, int seconds);
+
+/* Like mic_record, but also reports via *speech_out whether any speech was
+ * detected, so callers (e.g. the wake-word loop) can skip pure silence. */
+size_t mic_record_vad(int16_t *dest, int seconds, bool *speech_out);
 
 /* Low-level continuous capture, used by the wake-word loop. Start/stop enable
  * and disable the I2S RX channel; mic_read() blocks until `nsamp` 16-bit mono
