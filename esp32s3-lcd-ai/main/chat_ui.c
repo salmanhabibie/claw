@@ -1,5 +1,7 @@
 #include "chat_ui.h"
 
+#include <math.h>
+
 #include "lvgl.h"
 #include "esp_lvgl_port.h"
 #include "esp_log.h"
@@ -11,6 +13,7 @@ static lv_obj_t *s_response;
 static lv_obj_t *s_eye_l;
 static lv_obj_t *s_eye_r;
 static lv_obj_t *s_mouth;
+static lv_obj_t *s_dot;            /* orbiting "thinking" loader */
 static SemaphoreHandle_t s_talk_sem;
 static ui_state_t s_state = UI_IDLE;
 
@@ -45,6 +48,17 @@ static void mouth_h_exec(void *v, int32_t h)
 {
     (void)v;
     lv_obj_set_height(s_mouth, h);
+}
+
+/* Drive the loader dot around a circle; `deg` is the angle in degrees. */
+static void dot_orbit_exec(void *v, int32_t deg)
+{
+    (void)v;
+    const float r = 128.0f;
+    float rad = (float)deg * 3.1415926f / 180.0f;
+    int x = (int)(r * cosf(rad));
+    int y = (int)(r * sinf(rad));
+    lv_obj_align(s_dot, LV_ALIGN_CENTER, x, y);
 }
 
 /* ---- helpers ---- */
@@ -97,6 +111,19 @@ static void anim_mouth(void)
     lv_anim_set_duration(&a, 140);
     lv_anim_set_reverse_duration(&a, 140);
     lv_anim_set_repeat_count(&a, LV_ANIM_REPEAT_INFINITE);
+    lv_anim_start(&a);
+}
+
+static void anim_dot_orbit(void)
+{
+    lv_anim_t a;
+    lv_anim_init(&a);
+    lv_anim_set_var(&a, s_dot);
+    lv_anim_set_exec_cb(&a, dot_orbit_exec);
+    lv_anim_set_values(&a, 0, 360);
+    lv_anim_set_duration(&a, 1100);
+    lv_anim_set_repeat_count(&a, LV_ANIM_REPEAT_INFINITE);   /* continuous spin */
+    lv_anim_set_path_cb(&a, lv_anim_path_linear);
     lv_anim_start(&a);
 }
 
@@ -161,6 +188,18 @@ void chat_ui_init(SemaphoreHandle_t talk_sem)
     lv_obj_remove_flag(s_mouth, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_flag(s_mouth, LV_OBJ_FLAG_HIDDEN);
 
+    /* Orbiting loader dot (shown only while thinking). */
+    s_dot = lv_obj_create(scr);
+    lv_obj_remove_style_all(s_dot);
+    lv_obj_set_style_bg_opa(s_dot, LV_OPA_COVER, 0);
+    lv_obj_set_style_bg_color(s_dot, lv_color_hex(COL_THINK), 0);
+    lv_obj_set_style_radius(s_dot, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_size(s_dot, 20, 20);
+    lv_obj_align(s_dot, LV_ALIGN_CENTER, 128, 0);
+    lv_obj_remove_flag(s_dot, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_remove_flag(s_dot, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(s_dot, LV_OBJ_FLAG_HIDDEN);
+
     /* Response / transcript text near the bottom. */
     s_response = lv_label_create(scr);
     lv_label_set_long_mode(s_response, LV_LABEL_LONG_WRAP);
@@ -211,7 +250,9 @@ void chat_ui_set_state(ui_state_t state)
     /* Stop any state-specific animation before reconfiguring. */
     lv_anim_delete(s_eye_l, NULL);
     lv_anim_delete(s_mouth, NULL);
+    lv_anim_delete(s_dot, NULL);
     lv_obj_add_flag(s_mouth, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(s_dot, LV_OBJ_FLAG_HIDDEN);
 
     switch (state) {
     case UI_IDLE:
@@ -224,6 +265,8 @@ void chat_ui_set_state(ui_state_t state)
     case UI_THINKING:
         set_eyes(EYE_W, EYE_H, COL_THINK);
         anim_eye_glance();                                /* look side to side */
+        lv_obj_remove_flag(s_dot, LV_OBJ_FLAG_HIDDEN);
+        anim_dot_orbit();                                 /* spinning loader */
         break;
     case UI_SPEAKING:
         set_eyes(EYE_W, EYE_H - 20, COL_SPEAK);           /* happy squint */
