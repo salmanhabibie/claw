@@ -42,8 +42,20 @@ static void halt(const char *why)
 static void voice_task(void *arg)
 {
     (void)arg;
+    ESP_LOGI(TAG, "voice task started (free internal heap=%u)",
+             (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
+
+    /* Spoken greeting once, on this task's large (TLS-capable) stack. */
+    if (strlen(CONFIG_ELEVENLABS_API_KEY) > 0) {
+        chat_ui_set_status("Tes suara...");
+        tts_say("Halo! Ini asisten Claude. Tekan tombol bicara, "
+                "lalu ngomong setelah muncul tulisan mendengarkan.");
+        chat_ui_set_status("Tap untuk bicara");
+    }
+
     for (;;) {
         xSemaphoreTake(s_talk_sem, portMAX_DELAY);
+        ESP_LOGI(TAG, "voice turn: recording %d s", RECORD_SECONDS);
 
         int16_t *pcm = heap_caps_malloc(
             (size_t)RECORD_SECONDS * MIC_SAMPLE_RATE * sizeof(int16_t),
@@ -82,16 +94,6 @@ static void voice_task(void *arg)
 
         chat_ui_set_status("Tap untuk bicara");
     }
-}
-
-/* One-shot speaker check on boot, in its own task for the TLS stack. */
-static void speaker_test_task(void *arg)
-{
-    (void)arg;
-    chat_ui_set_status("Tes suara...");
-    tts_say("Halo! Ini tes suara dari asisten Claude. Tekan tombol untuk bicara dengan saya.");
-    chat_ui_set_status("Tap untuk bicara");
-    vTaskDelete(NULL);
 }
 
 void app_main(void)
@@ -150,10 +152,11 @@ void app_main(void)
         chat_ui_set_status("Tap untuk bicara");
     }
 
-    /* Boot speaker check + the TALK-button worker. */
-    if (strlen(CONFIG_ELEVENLABS_API_KEY) > 0) {
-        xTaskCreate(speaker_test_task, "spktest", VOICE_TASK_STACK, NULL, 5, NULL);
-    }
-    xTaskCreate(voice_task, "voice", VOICE_TASK_STACK, NULL, 5, NULL);
+    /* Single worker: speaks the greeting, then handles each TALK turn. Using
+     * one big-stack task (not two) keeps internal DRAM from being exhausted. */
+    BaseType_t ok = xTaskCreate(voice_task, "voice", VOICE_TASK_STACK, NULL, 5, NULL);
+    ESP_LOGI(TAG, "voice task create: %s (free internal heap=%u)",
+             (ok == pdPASS) ? "ok" : "FAILED - reduce VOICE_TASK_STACK",
+             (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
     ESP_LOGI(TAG, "ready");
 }
