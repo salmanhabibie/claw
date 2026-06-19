@@ -48,10 +48,12 @@ static void voice_task(void *arg)
     /* Spoken greeting once, on this task's large (TLS-capable) stack. */
     if (strlen(CONFIG_ELEVENLABS_API_KEY) > 0) {
         chat_ui_set_status("Tes suara...");
+        chat_ui_set_state(UI_SPEAKING);
         tts_say("Halo! Ini asisten Claude. Tekan tombol bicara, "
                 "lalu ngomong setelah muncul tulisan mendengarkan.");
-        chat_ui_set_status("Tap untuk bicara");
     }
+    chat_ui_set_status("Tap untuk bicara");
+    chat_ui_set_state(UI_IDLE);
 
     for (;;) {
         xSemaphoreTake(s_talk_sem, portMAX_DELAY);
@@ -62,19 +64,23 @@ static void voice_task(void *arg)
             MALLOC_CAP_SPIRAM);
         if (pcm == NULL) {
             chat_ui_set_status("Memori penuh");
+            chat_ui_set_state(UI_IDLE);
             continue;
         }
 
         chat_ui_set_status("Mendengarkan... bicara sekarang!");
+        chat_ui_set_state(UI_LISTENING);
         size_t n = mic_record(pcm, RECORD_SECONDS);
 
         chat_ui_set_status("Memproses suara...");
+        chat_ui_set_state(UI_THINKING);
         char *text = stt_transcribe(pcm, n);
         free(pcm);
 
         if (text == NULL || text[0] == '\0') {
             free(text);
             chat_ui_set_status("Tidak terdengar - tap untuk ulangi");
+            chat_ui_set_state(UI_IDLE);
             continue;
         }
         chat_ui_set_response(text);   /* show what was understood */
@@ -84,15 +90,18 @@ static void voice_task(void *arg)
         free(text);
         if (reply == NULL) {
             chat_ui_set_status("Gagal menghubungi Claude");
+            chat_ui_set_state(UI_IDLE);
             continue;
         }
         chat_ui_set_response(reply);
 
         chat_ui_set_status("Berbicara...");
+        chat_ui_set_state(UI_SPEAKING);
         tts_say(reply);
         free(reply);
 
         chat_ui_set_status("Tap untuk bicara");
+        chat_ui_set_state(UI_IDLE);
     }
 }
 
