@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <string.h>
+#include <stdbool.h>
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -25,6 +26,8 @@ static const char *TAG = "app";
 
 /* Upper bound for one recording; voice-activity detection usually stops sooner. */
 #define RECORD_SECONDS 8
+/* Shorter window when auto-listening for a follow-up (silence ends the chat). */
+#define FOLLOWUP_SECONDS 6
 
 static SemaphoreHandle_t s_talk_sem;
 
@@ -56,52 +59,60 @@ static void voice_task(void *arg)
     chat_ui_set_state(UI_IDLE);
 
     for (;;) {
+        /* Wait for a tap to begin a conversation. */
         xSemaphoreTake(s_talk_sem, portMAX_DELAY);
-        ESP_LOGI(TAG, "voice turn: recording %d s", RECORD_SECONDS);
 
-        int16_t *pcm = heap_caps_malloc(
-            (size_t)RECORD_SECONDS * MIC_SAMPLE_RATE * sizeof(int16_t),
-            MALLOC_CAP_SPIRAM);
-        if (pcm == NULL) {
-            chat_ui_set_status("Memori penuh");
-            chat_ui_set_state(UI_IDLE);
-            continue;
-        }
+        /* Conversation loop: after each spoken reply we listen again for a
+         * follow-up. Staying silent (empty transcript) ends the conversation. */
+        bool first = true;
+        for (;;) {
+            int max_rec = first ? RECORD_SECONDS : FOLLOWUP_SECONDS;
+            first = false;
 
-        chat_ui_set_status("Mendengarkan... (berhenti otomatis saat diam)");
-        chat_ui_set_state(UI_LISTENING);
-        size_t n = mic_record(pcm, RECORD_SECONDS);
+            int16_t *pcm = heap_caps_malloc(
+                (size_t)RECORD_SECONDS * MIC_SAMPLE_RATE * sizeof(int16_t),
+                MALLOC_CAP_SPIRAM);
+            if (pcm == NULL) {
+                chat_ui_set_status("Memori penuh");
+                break;
+            }
 
-        chat_ui_set_status("Memproses suara...");
-        chat_ui_set_state(UI_THINKING);
-        char *text = stt_transcribe(pcm, n);
-        free(pcm);
+            chat_ui_set_status("Mendengarkan... (diam untuk berhenti)");
+            chat_ui_set_state(UI_LISTENING);
+            size_t n = mic_record(pcm, max_rec);
 
-        if (text == NULL || text[0] == '\0') {
+            chat_ui_set_status("Memproses suara...");
+            chat_ui_set_state(UI_THINKING);
+            char *text = stt_transcribe(pcm, n);
+            free(pcm);
+
+            if (text == NULL || text[0] == '\0') {
+                free(text);
+                break;   /* no speech -> end the conversation */
+            }
+            chat_ui_set_response(text);
+
+            chat_ui_set_status("Berpikir...");
+            char *reply = claude_ask(text);
             free(text);
-            chat_ui_set_status("Tidak terdengar - tap untuk ulangi");
-            chat_ui_set_state(UI_IDLE);
-            continue;
-        }
-        chat_ui_set_response(text);   /* show what was understood */
+            if (reply == NULL) {
+                chat_ui_set_status("Gagal menghubungi Claude");
+                break;
+            }
+            chat_ui_set_response(reply);
 
-        chat_ui_set_status("Berpikir...");
-        char *reply = claude_ask(text);
-        free(text);
-        if (reply == NULL) {
-            chat_ui_set_status("Gagal menghubungi Claude");
-            chat_ui_set_state(UI_IDLE);
-            continue;
-        }
-        chat_ui_set_response(reply);
+            chat_ui_set_status("Berbicara...");
+            chat_ui_set_state(UI_SPEAKING);
+            tts_say(reply);
+            free(reply);
 
-        chat_ui_set_status("Berbicara...");
-        chat_ui_set_state(UI_SPEAKING);
-        tts_say(reply);
-        free(reply);
+            /* Brief settle so the mic doesn't catch the speaker's tail. */
+            vTaskDelay(pdMS_TO_TICKS(300));
+        }
 
         chat_ui_set_status("Tap untuk bicara");
         chat_ui_set_state(UI_IDLE);
+        xSemaphoreTake(s_talk_sem, 0);   /* drop taps that arrived mid-chat */
     }
 }
 
