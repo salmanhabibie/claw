@@ -24,6 +24,7 @@
 #include "tts.h"
 #include "stt.h"
 #include "wake.h"
+#include "reminders.h"
 
 static const char *TAG = "app";
 
@@ -113,11 +114,14 @@ static bool wake_word_heard(const char *transcript, char **cmd)
     return true;
 }
 
-/* Block until a conversation should start. Returns a heap command string if one
- * was captured with the wake word (caller frees), else NULL. Order of triggers:
- * esp-sr wake word, then STT "Wanda" wake (if enabled), then a screen tap. */
-static char *wait_for_trigger(void)
+/* Wait until a conversation should start OR a reminder comes due. Returns true
+ * to start a conversation (with *out_initial set to a command captured with the
+ * wake word, or NULL); returns false when a reminder is due so the caller can
+ * announce it. Trigger order: esp-sr wake, STT "Wanda" wake, screen tap. */
+static bool wait_for_trigger(char **out_initial)
 {
+    *out_initial = NULL;
+
     /* 1. Offline esp-sr wake word, if a model is loaded. */
     if (s_wake_ok) {
         chat_ui_set_response("Ucapkan kata pemicu atau tap");
@@ -126,29 +130,31 @@ static char *wait_for_trigger(void)
             ? heap_caps_malloc((size_t)n * sizeof(int16_t), MALLOC_CAP_INTERNAL)
             : NULL;
         if (buf != NULL && mic_stream_start() == ESP_OK) {
+            bool start = true;
             for (;;) {
+                if (reminders_any_due(time(NULL))) { start = false; break; }
                 if (xSemaphoreTake(s_talk_sem, 0) == pdTRUE) break;
                 if (mic_read(buf, (size_t)n) != (size_t)n) continue;
                 if (wake_detect(buf)) { ESP_LOGI(TAG, "wake word detected"); break; }
             }
             mic_stream_stop();
             free(buf);
-            return NULL;
+            return start;
         }
         free(buf);
-        xSemaphoreTake(s_talk_sem, portMAX_DELAY);   /* degrade to tap */
-        return NULL;
     }
 
     /* 2. STT-based "Wanda" wake (costs an STT call per spoken utterance). */
-    if (bsp_nvs_get_u8("wake", 1)) {
+    else if (bsp_nvs_get_u8("wake", 1)) {
         chat_ui_set_response("Panggil \"Wanda\" atau tap");
         int16_t *pcm = heap_caps_malloc(
             (size_t)WAKE_LISTEN_SECONDS * MIC_SAMPLE_RATE * sizeof(int16_t),
             MALLOC_CAP_SPIRAM);
         if (pcm != NULL) {
             char *cmd = NULL;
+            bool start = true;
             for (;;) {
+                if (reminders_any_due(time(NULL))) { start = false; break; }
                 if (xSemaphoreTake(s_talk_sem, 0) == pdTRUE) break;   /* tapped */
                 bool speech = false;
                 size_t n = mic_record_vad(pcm, WAKE_LISTEN_SECONDS, &speech);
@@ -159,16 +165,36 @@ static char *wait_for_trigger(void)
                 free(t);
             }
             free(pcm);
-            return cmd;
+            *out_initial = cmd;
+            return start;
         }
-        xSemaphoreTake(s_talk_sem, portMAX_DELAY);   /* OOM: degrade to tap */
-        return NULL;
     }
 
-    /* 3. Tap only. */
+    /* 3. Tap only (timed wait so reminders can still fire). */
     chat_ui_set_response("Tap untuk bicara");
-    xSemaphoreTake(s_talk_sem, portMAX_DELAY);
-    return NULL;
+    for (;;) {
+        if (xSemaphoreTake(s_talk_sem, pdMS_TO_TICKS(1000)) == pdTRUE) return true;
+        if (reminders_any_due(time(NULL))) return false;
+    }
+}
+
+/* Speak (and show) every reminder that is currently due. Runs on the voice
+ * task so it never overlaps a conversation's audio. */
+static void announce_due_reminders(void)
+{
+    char msg[96];
+    while (reminders_pop_due(time(NULL), msg, sizeof(msg))) {
+        ESP_LOGI(TAG, "reminder fired: %s", msg);
+        chat_ui_set_status("Pengingat!");
+        chat_ui_set_response(msg);
+        chat_ui_set_state(UI_SPEAKING);
+        audio_play_chime();
+        char say[160];
+        snprintf(say, sizeof(say), "Pengingat. %s", msg);
+        tts_say(say);
+        chat_ui_set_status("Tap untuk bicara");
+        chat_ui_set_state(UI_IDLE);
+    }
 }
 
 /* One full voice turn, triggered by the TALK button:
@@ -197,9 +223,17 @@ static void voice_task(void *arg)
     chat_ui_set_state(UI_IDLE);
 
     for (;;) {
+        /* Fire any reminders that are due (chime + spoken). */
+        announce_due_reminders();
+
         /* Wait for the wake word or a tap. May return a command captured in the
-         * same breath as the wake word (e.g. "Wanda, nyalakan lampu"). */
-        char *initial = wait_for_trigger();
+         * same breath as the wake word (e.g. "Wanda, nyalakan lampu"). Returns
+         * false when a reminder came due while waiting -> loop to announce it. */
+        char *initial = NULL;
+        if (!wait_for_trigger(&initial)) {
+            free(initial);
+            continue;
+        }
 
         /* Conversation loop: after each spoken reply we listen again for a
          * follow-up. Staying silent (empty transcript) ends the conversation. */
@@ -284,6 +318,12 @@ void app_main(void)
     }
     ESP_ERROR_CHECK(ret);
 
+    /* Timezone (WIB, UTC+7) up front so reminder times are computed correctly
+     * once NTP syncs. Load any saved reminders from NVS. */
+    setenv("TZ", "WIB-7", 1);
+    tzset();
+    reminders_init();
+
     ESP_LOGI(TAG, "init I2C bus");
     if (bsp_i2c_init() != ESP_OK) {
         halt("I2C");
@@ -326,10 +366,8 @@ void app_main(void)
         chat_ui_set_status("WiFi gagal - cek menuconfig");
     } else {
         chat_ui_set_status("Tap untuk bicara");
-        /* Sync the clock over NTP (WIB, UTC+7). Non-blocking; the UI shows
-         * "--:--" until the first sync arrives. */
-        setenv("TZ", "WIB-7", 1);
-        tzset();
+        /* Sync the clock over NTP. Non-blocking; the UI shows "--:--" until the
+         * first sync arrives (TZ was already set above). */
         esp_sntp_config_t sntp_cfg = ESP_NETIF_SNTP_DEFAULT_CONFIG("pool.ntp.org");
         esp_netif_sntp_init(&sntp_cfg);
     }

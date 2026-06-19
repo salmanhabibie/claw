@@ -114,6 +114,28 @@ void audio_play_test_tone(void)
     }
 }
 
+void audio_play_chime(void)
+{
+    const int notes[2] = { 880, 1245 };   /* a rising two-note ding */
+    const int dur_ms = 150;
+    const int amp = 12000;
+    enum { CH = 256 };
+    int16_t buf[CH];
+    for (int k = 0; k < 2; k++) {
+        const int total = AUDIO_SAMPLE_RATE * dur_ms / 1000;
+        int i = 0;
+        while (i < total) {
+            int n = (total - i < CH) ? (total - i) : CH;
+            for (int j = 0; j < n; j++) {
+                float t = (float)(i + j) / AUDIO_SAMPLE_RATE;
+                buf[j] = (int16_t)(amp * sinf(2.0f * (float)M_PI * notes[k] * t));
+            }
+            audio_play_mono16((const uint8_t *)buf, (size_t)n * 2);
+            i += n;
+        }
+    }
+}
+
 esp_err_t mic_init(void)
 {
     i2s_chan_config_t chan_cfg = I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_AUTO, I2S_ROLE_MASTER);

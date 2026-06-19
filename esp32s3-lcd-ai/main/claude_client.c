@@ -26,7 +26,10 @@ static const char *SYSTEM_PROMPT =
     "minta menyalakan/mematikan/mengatur perangkat (lampu, AC, kipas, saklar) atau "
     "menanyakan status sensor, panggil ha_list_entities dulu bila belum tahu "
     "entity_id-nya; untuk sensor panggil ha_list_entities dengan domain=sensor. "
-    "Lalu ha_call_service untuk aksi atau ha_get_state untuk membaca.";
+    "Lalu ha_call_service untuk aksi atau ha_get_state untuk membaca. "
+    "Kamu juga bisa membuat pengingat/alarm lokal dengan set_reminder (timer "
+    "pakai in_minutes, alarm jam tertentu pakai at_time), serta menjadwalkan "
+    "otomasi perangkat di Home Assistant dengan ha_schedule.";
 
 /* Tool definitions, in Anthropic shape (name/description/input_schema). The
  * OpenAI path converts these to its function-tool shape at request time. */
@@ -63,6 +66,34 @@ static const char *TOOLS_JSON =
   "\"input_schema\":{\"type\":\"object\",\"properties\":{"
     "\"entity_id\":{\"type\":\"string\",\"description\":\"Entity yang dibaca, mis. sensor.suhu_kamar\"}},"
     "\"required\":[\"entity_id\"]}"
+"},{"
+  "\"name\":\"set_reminder\","
+  "\"description\":\"Buat pengingat/alarm lokal yang akan dibunyikan dan diucapkan perangkat. Isi in_minutes UNTUK relatif (mis. 10 menit lagi) ATAU at_time untuk jam tertentu (mis. 20:00). Set repeat_daily true untuk alarm harian.\","
+  "\"input_schema\":{\"type\":\"object\",\"properties\":{"
+    "\"message\":{\"type\":\"string\",\"description\":\"Isi pengingat, mis. minum obat\"},"
+    "\"in_minutes\":{\"type\":\"number\",\"description\":\"Berapa menit dari sekarang (untuk timer)\"},"
+    "\"at_time\":{\"type\":\"string\",\"description\":\"Jam tertentu format HH:MM 24 jam, mis. 20:00\"},"
+    "\"repeat_daily\":{\"type\":\"boolean\",\"description\":\"true bila diulang setiap hari\"}},"
+    "\"required\":[\"message\"]}"
+"},{"
+  "\"name\":\"list_reminders\","
+  "\"description\":\"Tampilkan daftar pengingat/alarm lokal yang aktif.\","
+  "\"input_schema\":{\"type\":\"object\",\"properties\":{}}"
+"},{"
+  "\"name\":\"cancel_reminders\","
+  "\"description\":\"Hapus semua pengingat/alarm lokal.\","
+  "\"input_schema\":{\"type\":\"object\",\"properties\":{}}"
+"},{"
+  "\"name\":\"ha_schedule\","
+  "\"description\":\"Jadwalkan otomasi Home Assistant harian pada jam tertentu, mis. nyalakan lampu teras tiap 18:00. Membuat automation bertrigger waktu. Cari entity_id lewat ha_list_entities bila perlu.\","
+  "\"input_schema\":{\"type\":\"object\",\"properties\":{"
+    "\"at_time\":{\"type\":\"string\",\"description\":\"Jam pemicu HH:MM 24 jam, mis. 18:00\"},"
+    "\"domain\":{\"type\":\"string\",\"description\":\"Domain HA, mis. light, switch, climate\"},"
+    "\"service\":{\"type\":\"string\",\"description\":\"Service, mis. turn_on, turn_off\"},"
+    "\"entity_id\":{\"type\":\"string\",\"description\":\"Entity target, mis. light.teras\"},"
+    "\"data\":{\"type\":\"object\",\"description\":\"Parameter tambahan opsional, mis. brightness_pct\"},"
+    "\"description\":{\"type\":\"string\",\"description\":\"Nama singkat jadwal\"}},"
+    "\"required\":[\"at_time\",\"domain\",\"service\"]}"
 "}]";
 
 /* ---- HTTP plumbing ---- */

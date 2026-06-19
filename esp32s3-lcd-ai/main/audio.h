@@ -21,6 +21,9 @@ int  audio_get_volume(void);
  * the I2S -> DAC -> amplifier -> speaker path on its own. */
 void audio_play_test_tone(void);
 
+/* Play a short two-note chime (no network). Used to announce a reminder. */
+void audio_play_chime(void);
+
 /* Microphone capture rate (16 kHz, matches the STT request). */
 #define MIC_SAMPLE_RATE 16000
 

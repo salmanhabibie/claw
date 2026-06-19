@@ -1,8 +1,11 @@
 #include "tools.h"
+#include "reminders.h"
 
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
+#include <stdio.h>
+#include <time.h>
 
 #include "esp_log.h"
 #include "esp_http_client.h"
@@ -308,6 +311,143 @@ static char *tool_ha_get_state(const cJSON *input)
     return out;
 }
 
+/* ====================== Local reminders / alarms ====================== */
+
+/* set_reminder: message + either in_minutes (relative) or at_time "HH:MM". */
+static char *tool_set_reminder(const cJSON *input)
+{
+    const char *msg = cJSON_GetStringValue(cJSON_GetObjectItem(input, "message"));
+    if (msg == NULL || msg[0] == '\0') {
+        return strdup("Perlu pesan pengingatnya.");
+    }
+    const cJSON *inmin = cJSON_GetObjectItem(input, "in_minutes");
+    const char  *at    = cJSON_GetStringValue(cJSON_GetObjectItem(input, "at_time"));
+    const cJSON *rep   = cJSON_GetObjectItem(input, "repeat_daily");
+    bool daily = cJSON_IsTrue(rep);
+
+    time_t now = time(NULL);
+    if (now < 1700000000) {   /* clock not synced yet */
+        return strdup("Jam perangkat belum sinkron, coba lagi sebentar.");
+    }
+    time_t when = 0;
+    if (cJSON_IsNumber(inmin) && inmin->valuedouble > 0) {
+        when = now + (time_t)(inmin->valuedouble * 60);
+    } else if (at != NULL) {
+        int hh = -1, mm = -1;
+        if (sscanf(at, "%d:%d", &hh, &mm) != 2 || hh < 0 || hh > 23 || mm < 0 || mm > 59) {
+            return strdup("Format waktu harus HH:MM, mis. 20:00.");
+        }
+        struct tm tm;
+        localtime_r(&now, &tm);
+        tm.tm_hour = hh; tm.tm_min = mm; tm.tm_sec = 0;
+        when = mktime(&tm);
+        if (when <= now) when += 24 * 3600;   /* already passed -> tomorrow */
+    } else {
+        return strdup("Sebutkan waktunya, mis. 10 menit lagi atau jam 20:00.");
+    }
+
+    if (!reminders_add(when, msg, daily)) {
+        return strdup("Maaf, daftar pengingat sudah penuh.");
+    }
+    struct tm tm;
+    localtime_r(&when, &tm);
+    char out[200];
+    snprintf(out, sizeof(out), "Oke, pengingat diset jam %02d:%02d%s: %s",
+             tm.tm_hour, tm.tm_min, daily ? " setiap hari" : "", msg);
+    return strdup(out);
+}
+
+static char *tool_list_reminders(const cJSON *input)
+{
+    (void)input;
+    char *buf = malloc(512);
+    if (buf == NULL) return strdup("Memori penuh.");
+    reminders_list(buf, 512);
+    return buf;
+}
+
+static char *tool_cancel_reminders(const cJSON *input)
+{
+    (void)input;
+    int n = reminders_clear();
+    char out[64];
+    snprintf(out, sizeof(out), "%d pengingat dihapus.", n);
+    return strdup(out);
+}
+
+/* ha_schedule: create a daily time-triggered Home Assistant automation. */
+static char *tool_ha_schedule(const cJSON *input)
+{
+    if (!ha_ready()) return strdup("Home Assistant belum dikonfigurasi.");
+
+    const char *at      = cJSON_GetStringValue(cJSON_GetObjectItem(input, "at_time"));
+    const char *domain  = cJSON_GetStringValue(cJSON_GetObjectItem(input, "domain"));
+    const char *service = cJSON_GetStringValue(cJSON_GetObjectItem(input, "service"));
+    const char *entity  = cJSON_GetStringValue(cJSON_GetObjectItem(input, "entity_id"));
+    const cJSON *data   = cJSON_GetObjectItem(input, "data");
+    const char *desc    = cJSON_GetStringValue(cJSON_GetObjectItem(input, "description"));
+    if (at == NULL || domain == NULL || service == NULL) {
+        return strdup("Perlu at_time (HH:MM), domain, dan service.");
+    }
+    int hh = -1, mm = -1;
+    if (sscanf(at, "%d:%d", &hh, &mm) != 2 || hh < 0 || hh > 23 || mm < 0 || mm > 59) {
+        return strdup("Format waktu harus HH:MM.");
+    }
+
+    cJSON *root = cJSON_CreateObject();
+    char alias[96];
+    snprintf(alias, sizeof(alias), "Wanda: %s", desc ? desc : service);
+    cJSON_AddStringToObject(root, "alias", alias);
+
+    cJSON *trig = cJSON_CreateArray();
+    cJSON *t = cJSON_CreateObject();
+    cJSON_AddStringToObject(t, "platform", "time");
+    char attime[16];
+    snprintf(attime, sizeof(attime), "%02d:%02d:00", hh, mm);
+    cJSON_AddStringToObject(t, "at", attime);
+    cJSON_AddItemToArray(trig, t);
+    cJSON_AddItemToObject(root, "trigger", trig);
+
+    cJSON *act = cJSON_CreateArray();
+    cJSON *a = cJSON_CreateObject();
+    char svc[64];
+    snprintf(svc, sizeof(svc), "%s.%s", domain, service);
+    cJSON_AddStringToObject(a, "service", svc);
+    if (entity != NULL) {
+        cJSON *tgt = cJSON_CreateObject();
+        cJSON_AddStringToObject(tgt, "entity_id", entity);
+        cJSON_AddItemToObject(a, "target", tgt);
+    }
+    if (data != NULL && cJSON_IsObject(data)) {
+        cJSON_AddItemToObject(a, "data", cJSON_Duplicate(data, true));
+    }
+    cJSON_AddItemToArray(act, a);
+    cJSON_AddItemToObject(root, "action", act);
+    cJSON_AddStringToObject(root, "mode", "single");
+
+    char *bstr = cJSON_PrintUnformatted(root);
+    cJSON_Delete(root);
+
+    char url[256];
+    snprintf(url, sizeof(url), "%s/api/config/automation/config/wanda_%ld",
+             CONFIG_HA_BASE_URL, (long)time(NULL));
+    int status = 0;
+    char *resp = http_do(HTTP_METHOD_POST, url, CONFIG_HA_TOKEN, bstr, &status);
+    free(bstr);
+    free(resp);
+
+    char out[180];
+    if (status == 200 || status == 201) {
+        snprintf(out, sizeof(out), "Jadwal HA dibuat: %s.%s jam %02d:%02d setiap hari.",
+                 domain, service, hh, mm);
+    } else {
+        snprintf(out, sizeof(out),
+                 "Gagal membuat jadwal HA (HTTP %d). Pastikan editor automation aktif.",
+                 status);
+    }
+    return strdup(out);
+}
+
 char *tool_execute(const char *name, const cJSON *input)
 {
     if (name == NULL) return NULL;
@@ -316,6 +456,10 @@ char *tool_execute(const char *name, const cJSON *input)
     if (strcmp(name, "ha_list_entities") == 0)   return tool_ha_list_entities(input);
     if (strcmp(name, "ha_call_service") == 0)    return tool_ha_call_service(input);
     if (strcmp(name, "ha_get_state") == 0)       return tool_ha_get_state(input);
+    if (strcmp(name, "set_reminder") == 0)       return tool_set_reminder(input);
+    if (strcmp(name, "list_reminders") == 0)     return tool_list_reminders(input);
+    if (strcmp(name, "cancel_reminders") == 0)   return tool_cancel_reminders(input);
+    if (strcmp(name, "ha_schedule") == 0)        return tool_ha_schedule(input);
     ESP_LOGW(TAG, "unknown tool: %s", name);
     return strdup("Alat itu tidak tersedia.");
 }

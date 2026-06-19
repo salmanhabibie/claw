@@ -10,6 +10,7 @@ set(srcs
     "stt.c"
     "tools.c"
     "wake.c"
+    "reminders.c"
 )
 
 set(reqs
