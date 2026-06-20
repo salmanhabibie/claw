@@ -15,6 +15,9 @@ static const char *TAG = "stt";
 #define STT_URL      "https://api.elevenlabs.io/v1/speech-to-text"
 #define STT_MODEL    "scribe_v2"   /* scribe_v1 is deprecated (removed 2026-07-09) */
 #define STT_BOUNDARY "----esp32clawboundary7e2c"
+/* Force the transcription language so noise/short clips aren't mis-detected as
+ * Japanese/Chinese. ISO-639-1 code; "id" = Indonesian. */
+#define STT_LANGUAGE "id"
 
 /* Accumulates the (small) JSON response body. */
 typedef struct {
@@ -83,7 +86,7 @@ char *stt_transcribe(const int16_t *pcm, size_t nsamples)
 
     /* multipart/form-data: provider-specific text fields + the WAV file. Both
      * ElevenLabs and the OpenAI-compatible API return {"text": ...}. */
-    char pre[384];
+    char pre[512];
     int pre_len;
 #if CONFIG_STT_PROVIDER_OPENAI
     if (strlen(CONFIG_STT_LANGUAGE) > 0) {
@@ -104,9 +107,10 @@ char *stt_transcribe(const int16_t *pcm, size_t nsamples)
 #else
     pre_len = snprintf(pre, sizeof(pre),
         "--%s\r\nContent-Disposition: form-data; name=\"model_id\"\r\n\r\n%s\r\n"
+        "--%s\r\nContent-Disposition: form-data; name=\"language_code\"\r\n\r\n%s\r\n"
         "--%s\r\nContent-Disposition: form-data; name=\"file\"; filename=\"rec.wav\"\r\n"
         "Content-Type: audio/wav\r\n\r\n",
-        STT_BOUNDARY, STT_MODEL, STT_BOUNDARY);
+        STT_BOUNDARY, STT_MODEL, STT_BOUNDARY, STT_LANGUAGE, STT_BOUNDARY);
 #endif
 
     char post[64];

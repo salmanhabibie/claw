@@ -164,7 +164,8 @@ static bool wait_for_trigger(char **out_initial)
                 if (xSemaphoreTake(s_talk_sem, 0) == pdTRUE) break;   /* tapped */
                 bool speech = false;
                 /* Short trail: react quickly to a "Wanda" call. */
-                size_t n = mic_record_window(pcm, WAKE_LISTEN_SECONDS, 800, &speech);
+                size_t n = mic_record_window(pcm, WAKE_LISTEN_SECONDS, 800,
+                                             NULL, &speech);
                 if (!speech) continue;            /* silence: skip the STT call */
                 char *t = stt_transcribe(pcm, n);
                 if (t != NULL) ESP_LOGI(TAG, "wake-listen heard: '%s'", t);
@@ -183,6 +184,13 @@ static bool wait_for_trigger(char **out_initial)
         if (xSemaphoreTake(s_talk_sem, pdMS_TO_TICKS(1000)) == pdTRUE) return true;
         if (reminders_any_due(time(NULL))) return false;
     }
+}
+
+/* Polled by mic_record_window while recording a conversation turn: a tap means
+ * "I'm done talking", so the capture ends immediately and the command runs. */
+static bool tap_stop_hook(void)
+{
+    return s_talk_sem != NULL && xSemaphoreTake(s_talk_sem, 0) == pdTRUE;
 }
 
 /* Speak (and show) every reminder that is currently due. Runs on the voice
@@ -275,9 +283,11 @@ static void voice_task(void *arg)
                     chat_ui_set_status("Memori penuh");
                     break;
                 }
-                chat_ui_set_status("Mendengarkan... (diam untuk berhenti)");
+                chat_ui_set_status("Bicara... (ketuk bila sudah selesai)");
                 chat_ui_set_state(UI_LISTENING);
-                size_t n = mic_record_window(pcm, max_rec, CONV_TRAIL_MS, NULL);
+                xSemaphoreTake(s_talk_sem, 0);   /* only a tap DURING recording counts as "done" */
+                size_t n = mic_record_window(pcm, max_rec, CONV_TRAIL_MS,
+                                             tap_stop_hook, NULL);
                 chat_ui_set_status("Memproses suara...");
                 chat_ui_set_state(UI_THINKING);
                 text = stt_transcribe(pcm, n);

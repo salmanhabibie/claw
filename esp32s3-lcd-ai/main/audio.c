@@ -183,15 +183,16 @@ esp_err_t mic_init(void)
 
 size_t mic_record(int16_t *dest, int max_seconds)
 {
-    return mic_record_window(dest, max_seconds, 1800, NULL);
+    return mic_record_window(dest, max_seconds, 1800, NULL, NULL);
 }
 
 size_t mic_record_vad(int16_t *dest, int max_seconds, bool *speech_out)
 {
-    return mic_record_window(dest, max_seconds, 1800, speech_out);
+    return mic_record_window(dest, max_seconds, 1800, NULL, speech_out);
 }
 
-size_t mic_record_window(int16_t *dest, int max_seconds, int trail_ms, bool *speech_out)
+size_t mic_record_window(int16_t *dest, int max_seconds, int trail_ms,
+                         mic_stop_cb_t stop_cb, bool *speech_out)
 {
     if (speech_out) *speech_out = false;
     if (s_rx == NULL || dest == NULL || max_seconds <= 0) {
@@ -237,6 +238,14 @@ size_t mic_record_window(int16_t *dest, int max_seconds, int trail_ms, bool *spe
         long energy = n ? absum / (long)n : 0;
         got += n;
         elapsed_ms += CHUNK_MS;
+
+        /* User explicitly ended the turn (tapped). Honor it after a short grace
+         * period so the tap that started the turn can't abort it instantly. */
+        if (stop_cb != NULL && elapsed_ms >= 400 && stop_cb()) {
+            ESP_LOGI(TAG, "capture ended by tap");
+            speech = true;
+            break;
+        }
 
         /* Calibrate the noise floor from the first few chunks (assumed quiet),
          * but cap the resulting threshold so a loud start can't make us deaf. */

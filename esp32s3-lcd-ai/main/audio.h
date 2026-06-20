@@ -38,11 +38,17 @@ size_t mic_record(int16_t *dest, int seconds);
  * detected, so callers (e.g. the wake-word loop) can skip pure silence. */
 size_t mic_record_vad(int16_t *dest, int seconds, bool *speech_out);
 
+/* Optional callback polled while recording; return true to end the capture
+ * immediately (e.g. the user tapped "done"). */
+typedef bool (*mic_stop_cb_t)(void);
+
 /* Full control: `trail_ms` is how long of a trailing silence ends the capture
  * once speech has started. Use a short trail (~800 ms) for snappy wake-word
- * detection and a long one (~1800 ms) so a normal pause doesn't cut a sentence
- * short. `speech_out` may be NULL. */
-size_t mic_record_window(int16_t *dest, int seconds, int trail_ms, bool *speech_out);
+ * detection and a long one (~2500 ms) so a normal pause doesn't cut a sentence
+ * short. `stop_cb` (may be NULL) lets the caller end recording on demand.
+ * `speech_out` may be NULL. */
+size_t mic_record_window(int16_t *dest, int seconds, int trail_ms,
+                         mic_stop_cb_t stop_cb, bool *speech_out);
 
 /* Low-level continuous capture, used by the wake-word loop. Start/stop enable
  * and disable the I2S RX channel; mic_read() blocks until `nsamp` 16-bit mono
