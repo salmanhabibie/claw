@@ -207,7 +207,7 @@ size_t mic_record_window(int16_t *dest, int max_seconds, int trail_ms, bool *spe
     const int BASELINE_CHUNKS = 8;                 /* ~256 ms to gauge noise floor */
     const int TRAIL_MS = (trail_ms > 0) ? trail_ms : 1800;  /* stop this long after speech ends */
     const int MIN_MS = 700;                        /* never stop before this */
-    const long THRESH_MAX = 1200;                  /* cap so we stay sensitive if the
+    const long THRESH_MAX = 900;                   /* cap so we stay sensitive if the
                                                     * start was noisy / speech began early */
 
     int32_t raw[CHUNK];
@@ -243,7 +243,9 @@ size_t mic_record_window(int16_t *dest, int max_seconds, int trail_ms, bool *spe
         if (baseline_n < BASELINE_CHUNKS) {
             baseline_sum += energy;
             if (++baseline_n == BASELINE_CHUNKS) {
-                threshold = (baseline_sum / baseline_n) * 3 + 300;
+                /* Sensitive on purpose: keep soft speech above the line so a
+                 * natural dip in volume isn't mistaken for the end of talking. */
+                threshold = (baseline_sum / baseline_n) * 2 + 200;
                 if (threshold > THRESH_MAX) threshold = THRESH_MAX;
             }
             continue;

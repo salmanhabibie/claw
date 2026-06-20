@@ -33,9 +33,12 @@ static const char *TAG = "app";
 #define VOICE_TASK_STACK (1024 * 32)
 
 /* Upper bound for one recording; voice-activity detection usually stops sooner. */
-#define RECORD_SECONDS 8
+#define RECORD_SECONDS 12
 /* Shorter window when auto-listening for a follow-up (silence ends the chat). */
-#define FOLLOWUP_SECONDS 6
+#define FOLLOWUP_SECONDS 8
+/* Trailing silence (ms) that ends a capture once you've started talking. Long so
+ * a pause mid-sentence doesn't cut you off. */
+#define CONV_TRAIL_MS 2500
 /* Window for one STT wake-listen capture ("Wanda" plus an optional command). */
 #define WAKE_LISTEN_SECONDS 4
 
@@ -274,7 +277,7 @@ static void voice_task(void *arg)
                 }
                 chat_ui_set_status("Mendengarkan... (diam untuk berhenti)");
                 chat_ui_set_state(UI_LISTENING);
-                size_t n = mic_record(pcm, max_rec);
+                size_t n = mic_record_window(pcm, max_rec, CONV_TRAIL_MS, NULL);
                 chat_ui_set_status("Memproses suara...");
                 chat_ui_set_state(UI_THINKING);
                 text = stt_transcribe(pcm, n);
