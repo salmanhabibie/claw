@@ -33,9 +33,11 @@ static const char *TAG = "app";
 #define VOICE_TASK_STACK (1024 * 32)
 
 /* Upper bound for one recording; voice-activity detection usually stops sooner. */
-#define RECORD_SECONDS 12
-/* Shorter window when auto-listening for a follow-up (silence ends the chat). */
-#define FOLLOWUP_SECONDS 8
+/* Generous cap so long, multi-sentence instructions fit (hands-free; the VAD
+ * ends the turn earlier once you actually stop talking). */
+#define RECORD_SECONDS 30
+/* Window when auto-listening for a follow-up (silence ends the chat). */
+#define FOLLOWUP_SECONDS 20
 /* Trailing silence (ms) that ends a capture once you've started talking. Long so
  * a pause mid-sentence doesn't cut you off. */
 #define CONV_TRAIL_MS 3500
@@ -186,13 +188,6 @@ static bool wait_for_trigger(char **out_initial)
     }
 }
 
-/* Polled by mic_record_window while recording a conversation turn: a tap means
- * "I'm done talking", so the capture ends immediately and the command runs. */
-static bool tap_stop_hook(void)
-{
-    return s_talk_sem != NULL && xSemaphoreTake(s_talk_sem, 0) == pdTRUE;
-}
-
 /* Speak (and show) every reminder that is currently due. Runs on the voice
  * task so it never overlaps a conversation's audio. */
 static void announce_due_reminders(void)
@@ -283,11 +278,12 @@ static void voice_task(void *arg)
                     chat_ui_set_status("Memori penuh");
                     break;
                 }
-                chat_ui_set_status("Bicara... (ketuk bila sudah selesai)");
+                chat_ui_set_status("Mendengarkan... (diam bila selesai)");
                 chat_ui_set_state(UI_LISTENING);
-                xSemaphoreTake(s_talk_sem, 0);   /* only a tap DURING recording counts as "done" */
+                /* Hands-free: the VAD ends the turn when you stop talking. No
+                 * tap-to-stop (it was cutting captures short). */
                 size_t n = mic_record_window(pcm, max_rec, CONV_TRAIL_MS,
-                                             tap_stop_hook, NULL);
+                                             NULL, NULL);
                 chat_ui_set_status("Memproses suara...");
                 chat_ui_set_state(UI_THINKING);
                 text = stt_transcribe(pcm, n);

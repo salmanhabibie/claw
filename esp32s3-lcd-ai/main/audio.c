@@ -215,7 +215,7 @@ size_t mic_record_window(int16_t *dest, int max_seconds, int trail_ms,
     size_t got = 0;
     long baseline_sum = 0;
     int  baseline_n = 0;
-    long threshold = 0;
+    long t_on = 0, t_off = 0;     /* hysteresis: enter speech high, leave it low */
     bool speech = false;
     int  silence_ms = 0, elapsed_ms = 0;
 
@@ -248,22 +248,31 @@ size_t mic_record_window(int16_t *dest, int max_seconds, int trail_ms,
         }
 
         /* Calibrate the noise floor from the first few chunks (assumed quiet),
-         * but cap the resulting threshold so a loud start can't make us deaf. */
+         * then derive two thresholds (hysteresis). */
         if (baseline_n < BASELINE_CHUNKS) {
             baseline_sum += energy;
             if (++baseline_n == BASELINE_CHUNKS) {
-                /* Sensitive on purpose: keep soft speech above the line so a
-                 * natural dip in volume isn't mistaken for the end of talking. */
-                threshold = (baseline_sum / baseline_n) * 2 + 200;
-                if (threshold > THRESH_MAX) threshold = THRESH_MAX;
+                long base = baseline_sum / baseline_n;
+                t_on  = base * 2 + 250;          /* clearly start talking */
+                if (t_on > THRESH_MAX) t_on = THRESH_MAX;
+                t_off = base + 120;              /* near the noise floor: only true
+                                                  * silence (not a mid-sentence dip)
+                                                  * counts toward ending the turn */
+                if (t_off >= t_on) t_off = t_on / 2;
             }
             continue;
         }
 
-        /* Voice-activity: once speech starts, stop after a trailing silence.
-         * If speech is never detected, we fall through and record the full cap. */
-        if (energy > threshold) { speech = true; silence_ms = 0; }
-        else if (speech)        { silence_ms += CHUNK_MS; }
+        /* Voice-activity with hysteresis: a high bar to *start* speech, a low bar
+         * to *stay* in it, so pauses/quiet syllables don't end the turn early.
+         * The turn ends only after a long run of near-silence. */
+        if (!speech) {
+            if (energy > t_on) { speech = true; silence_ms = 0; }
+        } else if (energy > t_off) {
+            silence_ms = 0;                      /* still talking */
+        } else {
+            silence_ms += CHUNK_MS;              /* genuine silence */
+        }
 
         if (speech && silence_ms >= TRAIL_MS && elapsed_ms >= MIN_MS) {
             break;
