@@ -38,7 +38,7 @@ static const char *TAG = "app";
 #define FOLLOWUP_SECONDS 8
 /* Trailing silence (ms) that ends a capture once you've started talking. Long so
  * a pause mid-sentence doesn't cut you off. */
-#define CONV_TRAIL_MS 2500
+#define CONV_TRAIL_MS 3500
 /* Window for one STT wake-listen capture ("Wanda" plus an optional command). */
 #define WAKE_LISTEN_SECONDS 4
 
