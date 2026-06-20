@@ -1,9 +1,12 @@
 #include "claude_client.h"
 #include "tools.h"
+#include "memory.h"
 
 #include <stdlib.h>
 #include <string.h>
 #include <stdbool.h>
+#include <stdio.h>
+#include <time.h>
 
 #include "esp_log.h"
 #include "esp_http_client.h"
@@ -29,7 +32,50 @@ static const char *SYSTEM_PROMPT =
     "Lalu ha_call_service untuk aksi atau ha_get_state untuk membaca. "
     "Kamu juga bisa membuat pengingat/alarm lokal dengan set_reminder (timer "
     "pakai in_minutes, alarm jam tertentu pakai at_time), serta menjadwalkan "
-    "otomasi perangkat di Home Assistant dengan ha_schedule.";
+    "otomasi perangkat di Home Assistant dengan ha_schedule. "
+    "Kamu punya ingatan jangka panjang: simpan nama pengguna dengan set_user_name, "
+    "simpan preferensi/catatan/daftar (mis. daftar belanja) dengan remember, dan "
+    "hapus dengan forget. Manfaatkan ingatan itu untuk menjawab tanpa bertanya ulang. "
+    "Bila diminta 'kabar hari ini' atau briefing, sapa sesuai waktu, sebutkan hari "
+    "dan tanggal serta jam, lalu cuaca kota pengguna (pakai get_weather; kalau "
+    "kotanya belum diketahui, tanyakan atau ingat lewat remember) dan pengingat "
+    "hari ini (list_reminders), ringkas saja.";
+
+/* Compose the live system prompt = persona + current date/time + memory. The
+ * caller frees it. Returns a strdup of SYSTEM_PROMPT alone on OOM. */
+static char *compose_system(void)
+{
+    char extra[900];
+    size_t off = 0;
+    extra[0] = '\0';
+
+    time_t now = time(NULL);
+    if (now > 1700000000) {                 /* clock is NTP-synced */
+        struct tm tm;
+        localtime_r(&now, &tm);
+        static const char *days[] = {
+            "Minggu", "Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu" };
+        static const char *mons[] = {
+            "Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli",
+            "Agustus", "September", "Oktober", "November", "Desember" };
+        off += snprintf(extra + off, sizeof(extra) - off,
+                        "\n\nWaktu sekarang: %s, %d %s %d, pukul %02d:%02d WIB.",
+                        days[tm.tm_wday], tm.tm_mday, mons[tm.tm_mon],
+                        tm.tm_year + 1900, tm.tm_hour, tm.tm_min);
+    }
+
+    char mem[600];
+    memory_get_prompt(mem, sizeof(mem));
+    if (mem[0] && off < sizeof(extra)) {
+        off += snprintf(extra + off, sizeof(extra) - off, "\n\n%s", mem);
+    }
+
+    char *out = malloc(strlen(SYSTEM_PROMPT) + strlen(extra) + 1);
+    if (out == NULL) return strdup(SYSTEM_PROMPT);
+    strcpy(out, SYSTEM_PROMPT);
+    strcat(out, extra);
+    return out;
+}
 
 /* Tool definitions, in Anthropic shape (name/description/input_schema). The
  * OpenAI path converts these to its function-tool shape at request time. */
@@ -94,6 +140,23 @@ static const char *TOOLS_JSON =
     "\"data\":{\"type\":\"object\",\"description\":\"Parameter tambahan opsional, mis. brightness_pct\"},"
     "\"description\":{\"type\":\"string\",\"description\":\"Nama singkat jadwal\"}},"
     "\"required\":[\"at_time\",\"domain\",\"service\"]}"
+"},{"
+  "\"name\":\"set_user_name\","
+  "\"description\":\"Simpan nama panggilan pengguna agar Wanda mengingatnya dan menyapa dengan namanya.\","
+  "\"input_schema\":{\"type\":\"object\",\"properties\":{"
+    "\"name\":{\"type\":\"string\",\"description\":\"Nama panggilan pengguna\"}},"
+    "\"required\":[\"name\"]}"
+"},{"
+  "\"name\":\"remember\","
+  "\"description\":\"Ingat satu catatan, preferensi, atau item daftar untuk jangka panjang (mis. 'alergi udang', 'kota: Bogor', 'belanja: telur'). Satu pemanggilan untuk satu hal.\","
+  "\"input_schema\":{\"type\":\"object\",\"properties\":{"
+    "\"note\":{\"type\":\"string\",\"description\":\"Hal yang diingat, kalimat singkat\"}},"
+    "\"required\":[\"note\"]}"
+"},{"
+  "\"name\":\"forget\","
+  "\"description\":\"Hapus catatan yang diingat. Isi note untuk menghapus yang mengandung kata itu (mis. 'telur'), atau kosongkan untuk menghapus semua catatan.\","
+  "\"input_schema\":{\"type\":\"object\",\"properties\":{"
+    "\"note\":{\"type\":\"string\",\"description\":\"Kata kunci catatan yang dihapus; kosong = hapus semua\"}}}"
 "}]";
 
 /* ---- HTTP plumbing ---- */
@@ -242,7 +305,9 @@ char *claude_ask(const char *prompt)
     cJSON *messages = cJSON_CreateArray();
     cJSON *sys = cJSON_CreateObject();
     cJSON_AddStringToObject(sys, "role", "system");
-    cJSON_AddStringToObject(sys, "content", SYSTEM_PROMPT);
+    char *sysprompt = compose_system();
+    cJSON_AddStringToObject(sys, "content", sysprompt ? sysprompt : "");
+    free(sysprompt);
     cJSON_AddItemToArray(messages, sys);
     cJSON *h;
     cJSON_ArrayForEach(h, s_history) {
@@ -365,7 +430,9 @@ static char *build_body(const cJSON *messages)
     if (root == NULL) return NULL;
     cJSON_AddStringToObject(root, "model", CONFIG_CLAUDE_MODEL);
     cJSON_AddNumberToObject(root, "max_tokens", CONFIG_CLAUDE_MAX_TOKENS);
-    cJSON_AddStringToObject(root, "system", SYSTEM_PROMPT);
+    char *sysprompt = compose_system();
+    cJSON_AddStringToObject(root, "system", sysprompt ? sysprompt : "");
+    free(sysprompt);
     cJSON *tools = cJSON_Parse(TOOLS_JSON);
     if (tools) cJSON_AddItemToObject(root, "tools", tools);
     cJSON_AddItemToObject(root, "messages", cJSON_Duplicate(messages, true));

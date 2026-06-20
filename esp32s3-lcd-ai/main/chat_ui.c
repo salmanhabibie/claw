@@ -10,12 +10,14 @@
 
 #include "audio.h"
 #include "board.h"
+#include "reminders.h"
 
 static const char *TAG = "ui";
 
 static lv_obj_t *s_status;
 static lv_obj_t *s_response;
 static lv_obj_t *s_clock;          /* big HH:MM, shown only when idle */
+static lv_obj_t *s_clocksub;       /* date + next reminder, under the clock */
 static lv_obj_t *s_eye_l;
 static lv_obj_t *s_eye_r;
 static lv_obj_t *s_mouth;
@@ -185,10 +187,28 @@ static void clock_timer_cb(lv_timer_t *t)
     char buf[8];
     if (tm.tm_year < (2020 - 1900)) {
         snprintf(buf, sizeof(buf), "--:--");          /* not yet NTP-synced */
-    } else {
-        snprintf(buf, sizeof(buf), "%02d:%02d", tm.tm_hour, tm.tm_min);
+        lv_label_set_text(s_clock, buf);
+        lv_label_set_text(s_clocksub, "");
+        return;
     }
+    snprintf(buf, sizeof(buf), "%02d:%02d", tm.tm_hour, tm.tm_min);
     lv_label_set_text(s_clock, buf);
+
+    /* Date line, plus the next reminder if there is one. */
+    static const char *days[] = {
+        "Minggu", "Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu" };
+    static const char *mons[] = {
+        "Jan", "Feb", "Mar", "Apr", "Mei", "Jun",
+        "Jul", "Agu", "Sep", "Okt", "Nov", "Des" };
+    char sub[128];
+    int w = snprintf(sub, sizeof(sub), "%s, %d %s",
+                     days[tm.tm_wday], tm.tm_mday, mons[tm.tm_mon]);
+    char next[64];
+    reminders_next_summary(next, sizeof(next));
+    if (next[0] != '\0' && w > 0 && (size_t)w < sizeof(sub)) {
+        snprintf(sub + w, sizeof(sub) - w, "  -  %s", next);
+    }
+    lv_label_set_text(s_clocksub, sub);
 }
 
 /* ---- settings panel (long-press to open) ---- */
@@ -322,6 +342,16 @@ void chat_ui_init(SemaphoreHandle_t talk_sem)
     lv_obj_align(s_clock, LV_ALIGN_TOP_MID, 0, 46);
     lv_obj_add_flag(s_clock, LV_OBJ_FLAG_HIDDEN);
 
+    /* Date + next reminder line, just under the clock (idle only). */
+    s_clocksub = lv_label_create(scr);
+    lv_label_set_long_mode(s_clocksub, LV_LABEL_LONG_WRAP);
+    lv_obj_set_width(s_clocksub, 320);
+    lv_obj_set_style_text_align(s_clocksub, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_style_text_color(s_clocksub, lv_color_hex(0x7d8b9c) /* slate */, 0);
+    lv_label_set_text(s_clocksub, "");
+    lv_obj_align(s_clocksub, LV_ALIGN_TOP_MID, 0, 108);
+    lv_obj_add_flag(s_clocksub, LV_OBJ_FLAG_HIDDEN);
+
     /* Two eyes. */
     lv_obj_t *eyes[2];
     s_eye_l = lv_obj_create(scr);
@@ -420,12 +450,14 @@ void chat_ui_set_state(ui_state_t state)
     lv_obj_add_flag(s_mouth, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_flag(s_dot, LV_OBJ_FLAG_HIDDEN);
 
-    /* Idle shows the clock instead of the status line. */
+    /* Idle shows the clock (and date/next-reminder) instead of the status line. */
     if (state == UI_IDLE) {
         lv_obj_remove_flag(s_clock, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_remove_flag(s_clocksub, LV_OBJ_FLAG_HIDDEN);
         lv_obj_add_flag(s_status, LV_OBJ_FLAG_HIDDEN);
     } else {
         lv_obj_add_flag(s_clock, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(s_clocksub, LV_OBJ_FLAG_HIDDEN);
         lv_obj_remove_flag(s_status, LV_OBJ_FLAG_HIDDEN);
     }
 

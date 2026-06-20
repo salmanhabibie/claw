@@ -114,6 +114,20 @@ void reminders_list(char *out, size_t outlen)
     if (n == 0) snprintf(out, outlen, "(tidak ada pengingat)");
 }
 
+void reminders_next_summary(char *out, size_t outlen)
+{
+    if (outlen == 0) return;
+    int best = -1;
+    for (int i = 0; i < MAX_REM; i++) {
+        if (!s_rem[i].active) continue;
+        if (best < 0 || s_rem[i].when < s_rem[best].when) best = i;
+    }
+    if (best < 0) { out[0] = '\0'; return; }
+    struct tm tm;
+    localtime_r(&s_rem[best].when, &tm);
+    snprintf(out, outlen, "%02d:%02d %s", tm.tm_hour, tm.tm_min, s_rem[best].msg);
+}
+
 int reminders_clear(void)
 {
     int n = 0;

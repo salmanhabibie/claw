@@ -25,6 +25,7 @@
 #include "stt.h"
 #include "wake.h"
 #include "reminders.h"
+#include "memory.h"
 
 static const char *TAG = "app";
 
@@ -209,15 +210,29 @@ static void voice_task(void *arg)
     s_wake_ok = wake_init();
     ESP_LOGI(TAG, "wake word: %s", s_wake_ok ? "enabled" : "disabled (tap only)");
 
-    /* Spoken greeting once, on this task's large (TLS-capable) stack. */
+    /* Spoken greeting once, on this task's large (TLS-capable) stack. Greet by
+     * name if we remember the user. */
     bool wake_active = s_wake_ok || bsp_nvs_get_u8("wake", 1);
     if (strlen(CONFIG_ELEVENLABS_API_KEY) > 0) {
+        char name[48];
+        memory_get_name(name, sizeof(name));
+        char greet[200];
+        if (name[0] != '\0') {
+            snprintf(greet, sizeof(greet),
+                     "Halo %s! Aku Wanda. %s", name,
+                     wake_active ? "Panggil namaku atau tap layar, lalu bicara."
+                                 : "Tap layar lalu bicara setelah muncul tulisan "
+                                   "mendengarkan.");
+        } else {
+            snprintf(greet, sizeof(greet), "%s",
+                     wake_active
+                     ? "Halo! Aku Wanda. Panggil namaku atau tap layar, lalu bicara."
+                     : "Halo! Aku Wanda, asistenmu. Tap layar lalu bicara setelah "
+                       "muncul tulisan mendengarkan.");
+        }
         chat_ui_set_status("Tes suara...");
         chat_ui_set_state(UI_SPEAKING);
-        tts_say(wake_active
-                ? "Halo! Aku Wanda. Panggil namaku atau tap layar, lalu bicara."
-                : "Halo! Aku Wanda, asistenmu. Tap layar lalu bicara setelah "
-                  "muncul tulisan mendengarkan.");
+        tts_say(greet);
     }
     chat_ui_set_status("Tap untuk bicara");
     chat_ui_set_state(UI_IDLE);
@@ -323,6 +338,7 @@ void app_main(void)
     setenv("TZ", "WIB-7", 1);
     tzset();
     reminders_init();
+    memory_init();
 
     ESP_LOGI(TAG, "init I2C bus");
     if (bsp_i2c_init() != ESP_OK) {

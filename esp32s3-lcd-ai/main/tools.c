@@ -1,5 +1,6 @@
 #include "tools.h"
 #include "reminders.h"
+#include "memory.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -448,6 +449,42 @@ static char *tool_ha_schedule(const cJSON *input)
     return strdup(out);
 }
 
+/* ====================== Memory / personalisation ====================== */
+
+static char *tool_set_user_name(const cJSON *input)
+{
+    const char *name = cJSON_GetStringValue(cJSON_GetObjectItem(input, "name"));
+    if (name == NULL || name[0] == '\0') return strdup("Siapa namanya?");
+    memory_set_name(name);
+    char out[80];
+    snprintf(out, sizeof(out), "Senang kenal kamu, %s! Kuingat ya.", name);
+    return strdup(out);
+}
+
+static char *tool_remember(const cJSON *input)
+{
+    const char *note = cJSON_GetStringValue(cJSON_GetObjectItem(input, "note"));
+    if (note == NULL || note[0] == '\0') return strdup("Apa yang mau diingat?");
+    if (!memory_add(note)) {
+        return strdup("Maaf, memoriku penuh. Hapus beberapa catatan dulu ya.");
+    }
+    return strdup("Oke, sudah kuingat.");
+}
+
+static char *tool_forget(const cJSON *input)
+{
+    const char *note = cJSON_GetStringValue(cJSON_GetObjectItem(input, "note"));
+    char out[80];
+    if (note != NULL && note[0] != '\0') {
+        int n = memory_remove_matching(note);
+        snprintf(out, sizeof(out), "%d catatan dihapus.", n);
+    } else {
+        int n = memory_clear();
+        snprintf(out, sizeof(out), "Semua catatan (%d) dihapus.", n);
+    }
+    return strdup(out);
+}
+
 char *tool_execute(const char *name, const cJSON *input)
 {
     if (name == NULL) return NULL;
@@ -460,6 +497,9 @@ char *tool_execute(const char *name, const cJSON *input)
     if (strcmp(name, "list_reminders") == 0)     return tool_list_reminders(input);
     if (strcmp(name, "cancel_reminders") == 0)   return tool_cancel_reminders(input);
     if (strcmp(name, "ha_schedule") == 0)        return tool_ha_schedule(input);
+    if (strcmp(name, "set_user_name") == 0)      return tool_set_user_name(input);
+    if (strcmp(name, "remember") == 0)           return tool_remember(input);
+    if (strcmp(name, "forget") == 0)             return tool_forget(input);
     ESP_LOGW(TAG, "unknown tool: %s", name);
     return strdup("Alat itu tidak tersedia.");
 }

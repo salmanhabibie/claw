@@ -11,6 +11,7 @@ set(srcs
     "tools.c"
     "wake.c"
     "reminders.c"
+    "memory.c"
 )
 
 set(reqs

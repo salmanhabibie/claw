@@ -24,5 +24,9 @@ bool reminders_pop_due(time_t now, char *out, size_t outlen);
 /* Write a human-readable list of active reminders into `out`. */
 void reminders_list(char *out, size_t outlen);
 
+/* Short one-line summary of the soonest upcoming reminder ("20:00 minum obat"),
+ * for the idle screen. Sets out[0]='\0' when there are none. */
+void reminders_next_summary(char *out, size_t outlen);
+
 /* Cancel all reminders; returns how many were active. */
 int reminders_clear(void);
