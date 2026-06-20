@@ -187,6 +187,11 @@
       padding: 4px 12px; cursor: pointer; font-size: 0.82rem;
     }
     .chip-btn:hover { border-color: var(--accent); color: var(--accent); }
+    .progress { margin: 12px 0; display: none; }
+    .progress.show { display: block; }
+    .progress-bar { width: 100%; height: 4px; background: var(--border); border-radius: 2px; overflow: hidden; }
+    .progress-fill { height: 100%; background: var(--accent); width: 0%; transition: width 0.3s; }
+    .progress-text { font-size: 0.8rem; color: var(--muted); margin-top: 4px; }
   </style>
 </head>
 <body>
@@ -230,6 +235,11 @@
 
       <button class="primary" id="compareBtn">Bandingkan</button>
 
+      <div id="progress" class="progress">
+        <div class="progress-bar"><div class="progress-fill"></div></div>
+        <div class="progress-text">Memproses file...</div>
+      </div>
+
       <div id="output" class="hidden">
         <div class="stats">
           <div class="stat"><div class="num accent" id="cnt1">0</div><div class="lbl">Baris File 1</div></div>
@@ -240,10 +250,12 @@
         <div class="result-list">
           <h3 style="color: var(--danger)">❌ Baris yang HILANG (ada di File 1, tidak ada di File 2)</h3>
           <div id="missingList"></div>
+          <button class="ghost" id="loadMoreMissing" style="display:none; width:100%; margin-top:12px">Tampilkan lebih banyak</button>
         </div>
         <div class="result-list">
           <h3 style="color: var(--success)">➕ Baris TAMBAHAN (ada di File 2, tidak ada di File 1)</h3>
           <div id="addedList"></div>
+          <button class="ghost" id="loadMoreAdded" style="display:none; width:100%; margin-top:12px">Tampilkan lebih banyak</button>
         </div>
       </div>
     </div>
@@ -305,6 +317,26 @@
   </div>
 
   <script>
+    const BATCH_SIZE = 100; // tampilkan 100 item per batch
+    let worker = null;
+
+    try {
+      worker = new Worker('worker.js');
+    } catch (e) {
+      console.warn('Web Worker tidak tersedia, gunakan main thread');
+    }
+
+    let allMissing = [];
+    let allAdded = [];
+    let displayedMissing = 0;
+    let displayedAdded = 0;
+    let allEmails = [];
+    let selectedDomains = new Set();
+
+    function escapeHtml(s) {
+      return s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    }
+
     /* ---------- Tabs ---------- */
     document.querySelectorAll('.tab-btn').forEach(btn => {
       btn.addEventListener('click', () => {
@@ -343,103 +375,192 @@
     setupDrop('drop2', 'file2', 'name2', 'text2');
     setupDrop('dropE', 'fileE', 'nameE', 'textE');
 
-    function escapeHtml(s) {
-      return s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    /* ================= COMPARE ================= */
+    function renderBatch(elId, items, cls, start, count) {
+      const el = document.getElementById(elId);
+      const end = Math.min(start + count, items.length);
+
+      if (start === 0) el.innerHTML = '';
+
+      if (items.length === 0) {
+        if (start === 0) el.innerHTML = '<div class="empty">Tidak ada.</div>';
+        return;
+      }
+
+      for (let i = start; i < end; i++) {
+        const item = items[i];
+        const div = document.createElement('div');
+        div.className = 'line-item ' + cls;
+        div.innerHTML = '<span class="line-num">baris ' + item.lineNum + ':</span>' +
+          escapeHtml(item.original === '' ? '(baris kosong)' : item.original);
+        el.appendChild(div);
+      }
     }
 
-    /* ================= COMPARE ================= */
-    function normalize(line, opts) {
-      let l = line;
-      if (opts.trim) l = l.trim();
-      if (opts.ignoreCase) l = l.toLowerCase();
-      return l;
+    function updateLoadMoreButtons() {
+      const missingBtn = document.getElementById('loadMoreMissing');
+      const addedBtn = document.getElementById('loadMoreAdded');
+
+      missingBtn.style.display = displayedMissing < allMissing.length ? 'block' : 'none';
+      addedBtn.style.display = displayedAdded < allAdded.length ? 'block' : 'none';
     }
-    function splitLines(text, opts) {
-      const raw = text.split(/\r\n|\r|\n/);
-      const lines = [];
-      raw.forEach((line, idx) => {
-        const norm = normalize(line, opts);
-        if (opts.ignoreBlank && norm === '') return;
-        lines.push({ original: line, norm: norm, lineNum: idx + 1 });
-      });
-      return lines;
-    }
-    function diff(source, target) {
-      const remaining = new Map();
-      target.forEach(l => remaining.set(l.norm, (remaining.get(l.norm) || 0) + 1));
-      const out = [];
-      source.forEach(l => {
-        const avail = remaining.get(l.norm) || 0;
-        if (avail > 0) remaining.set(l.norm, avail - 1);
-        else out.push(l);
-      });
-      return out;
-    }
+
     function compare() {
       const opts = {
         trim: document.getElementById('optTrim').checked,
         ignoreCase: document.getElementById('optCase').checked,
         ignoreBlank: document.getElementById('optBlank').checked,
       };
-      const lines1 = splitLines(document.getElementById('text1').value, opts);
-      const lines2 = splitLines(document.getElementById('text2').value, opts);
-      const missing = diff(lines1, lines2);
-      const added = diff(lines2, lines1);
+
+      const text1 = document.getElementById('text1').value;
+      const text2 = document.getElementById('text2').value;
+
+      document.getElementById('progress').classList.add('show');
+      document.getElementById('output').classList.add('hidden');
+
+      if (worker) {
+        worker.postMessage({ type: 'compare', text1, text2, opts, id: 'compare' });
+      } else {
+        handleCompareResult({ text1, text2, opts });
+      }
+    }
+
+    function handleCompareResult(data) {
+      const { text1, text2, opts, lines1Count, lines2Count, missing, added } = data;
+
+      if (!missing) {
+        const normalize = (line, opts) => {
+          let l = line;
+          if (opts.trim) l = l.trim();
+          if (opts.ignoreCase) l = l.toLowerCase();
+          return l;
+        };
+        const splitLines = (text, opts) => {
+          const raw = text.split(/\r\n|\r|\n/);
+          const lines = [];
+          for (let idx = 0; idx < raw.length; idx++) {
+            const line = raw[idx];
+            const norm = normalize(line, opts);
+            if (opts.ignoreBlank && norm === '') continue;
+            lines.push({ original: line, norm: norm, lineNum: idx + 1 });
+          }
+          return lines;
+        };
+        const diff = (source, target) => {
+          const remaining = new Map();
+          for (let i = 0; i < target.length; i++) {
+            const norm = target[i].norm;
+            remaining.set(norm, (remaining.get(norm) || 0) + 1);
+          }
+          const out = [];
+          for (let i = 0; i < source.length; i++) {
+            const l = source[i];
+            const avail = remaining.get(l.norm) || 0;
+            if (avail > 0) {
+              remaining.set(l.norm, avail - 1);
+            } else {
+              out.push(l);
+            }
+          }
+          return out;
+        };
+
+        const lines1 = splitLines(text1, opts);
+        const lines2 = splitLines(text2, opts);
+        allMissing = diff(lines1, lines2);
+        allAdded = diff(lines2, lines1);
+
+        data.lines1Count = lines1.length;
+        data.lines2Count = lines2.length;
+        data.missing = allMissing;
+        data.added = allAdded;
+      } else {
+        allMissing = missing;
+        allAdded = added;
+      }
+
+      displayedMissing = 0;
+      displayedAdded = 0;
+
+      document.getElementById('progress').classList.remove('show');
       document.getElementById('output').classList.remove('hidden');
-      document.getElementById('cnt1').textContent = lines1.length;
-      document.getElementById('cnt2').textContent = lines2.length;
-      document.getElementById('cntMissing').textContent = missing.length;
-      document.getElementById('cntAdded').textContent = added.length;
-      renderList('missingList', missing, 'missing');
-      renderList('addedList', added, 'added');
+      document.getElementById('cnt1').textContent = lines1Count;
+      document.getElementById('cnt2').textContent = lines2Count;
+      document.getElementById('cntMissing').textContent = allMissing.length;
+      document.getElementById('cntAdded').textContent = allAdded.length;
+
+      renderBatch('missingList', allMissing, 'missing', 0, BATCH_SIZE);
+      renderBatch('addedList', allAdded, 'added', 0, BATCH_SIZE);
+      displayedMissing = Math.min(BATCH_SIZE, allMissing.length);
+      displayedAdded = Math.min(BATCH_SIZE, allAdded.length);
+      updateLoadMoreButtons();
     }
-    function renderList(elId, items, cls) {
-      const el = document.getElementById(elId);
-      el.innerHTML = '';
-      if (items.length === 0) { el.innerHTML = '<div class="empty">Tidak ada.</div>'; return; }
-      items.forEach(item => {
-        const div = document.createElement('div');
-        div.className = 'line-item ' + cls;
-        div.innerHTML = '<span class="line-num">baris ' + item.lineNum + ':</span>' +
-          escapeHtml(item.original === '' ? '(baris kosong)' : item.original);
-        el.appendChild(div);
-      });
+
+    if (worker) {
+      worker.onmessage = (evt) => {
+        if (evt.data.type === 'compare') {
+          handleCompareResult(evt.data);
+        } else if (evt.data.type === 'email') {
+          handleEmailResult(evt.data);
+        }
+      };
     }
+
     document.getElementById('compareBtn').addEventListener('click', compare);
 
-    /* ================= FILTER EMAIL ================= */
-    const EMAIL_RE = /[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/g;
-    let parsedEmails = [];        // { email, domain }
-    const selectedDomains = new Set();
+    document.getElementById('loadMoreMissing').addEventListener('click', () => {
+      renderBatch('missingList', allMissing, 'missing', displayedMissing, BATCH_SIZE);
+      displayedMissing += BATCH_SIZE;
+      updateLoadMoreButtons();
+    });
 
-    function extractEmails(text) {
-      const found = text.match(EMAIL_RE) || [];
-      return found.map(e => {
-        const email = e.trim();
-        const domain = email.slice(email.lastIndexOf('@') + 1).toLowerCase();
-        return { email, domain };
-      });
+    document.getElementById('loadMoreAdded').addEventListener('click', () => {
+      renderBatch('addedList', allAdded, 'added', displayedAdded, BATCH_SIZE);
+      displayedAdded += BATCH_SIZE;
+      updateLoadMoreButtons();
+    });
+
+    /* ================= FILTER EMAIL ================= */
+    function scanEmails() {
+      const textE = document.getElementById('textE').value;
+      document.getElementById('progress').classList.add('show');
+
+      if (worker) {
+        worker.postMessage({ type: 'email', textE, id: 'email' });
+      } else {
+        const EMAIL_RE = /[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/g;
+        const found = textE.match(EMAIL_RE) || [];
+        const emails = [];
+        for (let i = 0; i < found.length; i++) {
+          const email = found[i].trim();
+          const domain = email.slice(email.lastIndexOf('@') + 1).toLowerCase();
+          emails.push({ email, domain });
+        }
+        handleEmailResult({ emails, domains: [...new Set(emails.map(e => e.domain))].sort() });
+      }
     }
 
-    function scanEmails() {
-      parsedEmails = extractEmails(document.getElementById('textE').value);
+    function handleEmailResult(data) {
+      const { emails, domains } = data;
+      allEmails = emails;
       const counts = new Map();
-      parsedEmails.forEach(({ domain }) => counts.set(domain, (counts.get(domain) || 0) + 1));
+      for (let i = 0; i < emails.length; i++) {
+        counts.set(emails[i].domain, (counts.get(emails[i].domain) || 0) + 1);
+      }
 
-      // urutkan domain dari terbanyak
-      const sorted = [...counts.entries()].sort((a, b) => b[1] - a[1]);
-
+      document.getElementById('progress').classList.remove('show');
       document.getElementById('emailOutput').classList.remove('hidden');
-      document.getElementById('eTotal').textContent = parsedEmails.length;
-      document.getElementById('eDomains').textContent = sorted.length;
+      document.getElementById('eTotal').textContent = emails.length;
+      document.getElementById('eDomains').textContent = domains.length;
 
       const grid = document.getElementById('domainGrid');
       grid.innerHTML = '';
-      if (sorted.length === 0) {
+      if (domains.length === 0) {
         grid.innerHTML = '<div class="empty">Tidak ada email terdeteksi.</div>';
       }
-      sorted.forEach(([domain, count]) => {
+      domains.forEach(domain => {
         const id = 'dom_' + domain.replace(/[^a-z0-9]/gi, '_');
+        const count = counts.get(domain);
         const label = document.createElement('label');
         label.className = 'domain-chip';
         label.innerHTML =
@@ -461,12 +582,11 @@
       const exclude = document.getElementById('modeExclude').checked;
       let result;
       if (selectedDomains.size === 0) {
-        // belum ada pilihan: tampilkan semua
-        result = parsedEmails.map(e => e.email);
+        result = allEmails.map(e => e.email);
       } else if (exclude) {
-        result = parsedEmails.filter(e => !selectedDomains.has(e.domain)).map(e => e.email);
+        result = allEmails.filter(e => !selectedDomains.has(e.domain)).map(e => e.email);
       } else {
-        result = parsedEmails.filter(e => selectedDomains.has(e.domain)).map(e => e.email);
+        result = allEmails.filter(e => selectedDomains.has(e.domain)).map(e => e.email);
       }
       document.getElementById('resultArea').value = result.join('\n');
       document.getElementById('resultCount').textContent = result.length;
@@ -488,13 +608,17 @@
       applyFilter();
     });
 
-    // tombol pilih cepat (preset) — pilih domain umum kalau ada di data
     document.querySelectorAll('.chip-btn').forEach(btn => {
       btn.addEventListener('click', () => {
         const dom = btn.dataset.preset;
         selectedDomains.add(dom);
-        if (parsedEmails.length === 0) scanEmails();
-        else scanEmails(); // re-render agar checkbox ikut tercentang
+        if (allEmails.length === 0) scanEmails();
+        else {
+          document.querySelectorAll('#domainGrid input').forEach(cb => {
+            if (cb.value === dom) cb.checked = true;
+          });
+          applyFilter();
+        }
       });
     });
 
