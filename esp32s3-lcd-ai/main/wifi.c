@@ -114,7 +114,9 @@ static void prov_service_name(char *out, size_t n)
 {
     uint8_t mac[6] = { 0 };
     esp_wifi_get_mac(WIFI_IF_STA, mac);
-    snprintf(out, n, "WANDA_%02X%02X", mac[4], mac[5]);
+    /* The "ESP BLE Provisioning" app filters to names starting with "PROV_"
+     * by default, so use that canonical Espressif prefix. */
+    snprintf(out, n, "PROV_%02X%02X%02X", mac[3], mac[4], mac[5]);
 }
 #endif /* CONFIG_WANDA_BLE_PROV */
 
