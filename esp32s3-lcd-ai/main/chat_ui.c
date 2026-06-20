@@ -12,6 +12,10 @@
 #include "board.h"
 #include "reminders.h"
 
+#if CONFIG_WANDA_BLE_PROV
+#include "esp_system.h"   /* esp_restart() */
+#endif
+
 static const char *TAG = "ui";
 
 static lv_obj_t *s_status;
@@ -238,6 +242,15 @@ static void wake_switch_cb(lv_event_t *e)
     bsp_nvs_set_u8("wake", on ? 1 : 0);   /* applied on the next idle cycle */
 }
 
+#if CONFIG_WANDA_BLE_PROV
+static void wifi_reset_cb(lv_event_t *e)
+{
+    (void)e;
+    bsp_nvs_set_u8("reprov", 1);   /* re-provision over BLE on the next boot */
+    esp_restart();
+}
+#endif
+
 static void settings_open_cb(lv_event_t *e)
 {
     (void)e;
@@ -307,6 +320,14 @@ static void build_settings(lv_obj_t *scr)
     lv_obj_t *wsw = lv_switch_create(s_settings);
     if (bsp_nvs_get_u8("wake", 1)) lv_obj_add_state(wsw, LV_STATE_CHECKED);
     lv_obj_add_event_cb(wsw, wake_switch_cb, LV_EVENT_VALUE_CHANGED, NULL);
+
+#if CONFIG_WANDA_BLE_PROV
+    /* Forget WiFi + re-provision over BLE (reboots). */
+    lv_obj_t *wbtn = lv_button_create(s_settings);
+    lv_obj_add_event_cb(wbtn, wifi_reset_cb, LV_EVENT_CLICKED, NULL);
+    lv_obj_t *wblbl = lv_label_create(wbtn);
+    lv_label_set_text(wblbl, "Atur ulang WiFi");
+#endif
 
     /* Close */
     lv_obj_t *btn = lv_button_create(s_settings);

@@ -12,6 +12,21 @@ menu "AI Assistant Configuration"
         help
             Password of the WiFi network. Leave empty for an open network.
 
+    config WANDA_BLE_PROV
+        bool "Set WiFi from a phone over BLE (provisioning)"
+        default n
+        select BT_ENABLED
+        help
+            When enabled, if no WiFi credentials are saved the device starts
+            BLE provisioning at boot: pair with the Espressif "ESP BLE
+            Provisioning" app on your phone (PoP: wanda123) to enter the WiFi
+            network. Credentials are stored in NVS; long-press the screen and
+            tap "Atur ulang WiFi" to forget them and provision again.
+
+            This pulls in the Bluetooth (BLE) stack, so the binary is larger.
+            The compiled-in WiFi SSID/Password above are IGNORED while this is
+            on (WiFi comes from the phone instead).
+
     config CLAUDE_API_KEY
         string "Anthropic API key"
         default ""

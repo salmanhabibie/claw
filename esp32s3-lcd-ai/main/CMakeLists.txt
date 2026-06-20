@@ -42,6 +42,13 @@ set(reqs
     esp_io_expander_tca9554
 )
 
+# BLE WiFi provisioning (CONFIG_WANDA_BLE_PROV) pulls in the provisioning
+# manager and the Bluetooth stack only when enabled, so the default build stays
+# free of Bluetooth.
+if(CONFIG_WANDA_BLE_PROV)
+    list(APPEND reqs wifi_provisioning bt)
+endif()
+
 # Wake word (esp-sr) is opt-in. It is NOT listed here: when enabled via
 # idf_component.yml, esp-sr becomes a managed dependency of `main` and its
 # headers/libs are added automatically. wake.c detects it with __has_include,
