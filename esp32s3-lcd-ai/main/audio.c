@@ -183,10 +183,15 @@ esp_err_t mic_init(void)
 
 size_t mic_record(int16_t *dest, int max_seconds)
 {
-    return mic_record_vad(dest, max_seconds, NULL);
+    return mic_record_window(dest, max_seconds, 1800, NULL);
 }
 
 size_t mic_record_vad(int16_t *dest, int max_seconds, bool *speech_out)
+{
+    return mic_record_window(dest, max_seconds, 1800, speech_out);
+}
+
+size_t mic_record_window(int16_t *dest, int max_seconds, int trail_ms, bool *speech_out)
 {
     if (speech_out) *speech_out = false;
     if (s_rx == NULL || dest == NULL || max_seconds <= 0) {
@@ -200,8 +205,10 @@ size_t mic_record_vad(int16_t *dest, int max_seconds, bool *speech_out)
     enum { CHUNK = 512 };                          /* ~32 ms @ 16 kHz */
     const int CHUNK_MS = (CHUNK * 1000) / MIC_SAMPLE_RATE;
     const int BASELINE_CHUNKS = 8;                 /* ~256 ms to gauge noise floor */
-    const int TRAIL_MS = 1200;                     /* stop this long after speech ends */
+    const int TRAIL_MS = (trail_ms > 0) ? trail_ms : 1800;  /* stop this long after speech ends */
     const int MIN_MS = 700;                        /* never stop before this */
+    const long THRESH_MAX = 1200;                  /* cap so we stay sensitive if the
+                                                    * start was noisy / speech began early */
 
     int32_t raw[CHUNK];
     size_t got = 0;
@@ -231,11 +238,13 @@ size_t mic_record_vad(int16_t *dest, int max_seconds, bool *speech_out)
         got += n;
         elapsed_ms += CHUNK_MS;
 
-        /* Calibrate the noise floor from the first few chunks (assumed quiet). */
+        /* Calibrate the noise floor from the first few chunks (assumed quiet),
+         * but cap the resulting threshold so a loud start can't make us deaf. */
         if (baseline_n < BASELINE_CHUNKS) {
             baseline_sum += energy;
             if (++baseline_n == BASELINE_CHUNKS) {
-                threshold = (baseline_sum / baseline_n) * 3 + 350;
+                threshold = (baseline_sum / baseline_n) * 3 + 300;
+                if (threshold > THRESH_MAX) threshold = THRESH_MAX;
             }
             continue;
         }

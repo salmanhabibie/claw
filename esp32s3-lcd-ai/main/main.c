@@ -95,7 +95,9 @@ static bool wake_word_heard(const char *transcript, char **cmd)
     if (cmd) *cmd = NULL;
     if (transcript == NULL) return false;
 
-    static const char *kw[] = { "wanda", "wonda", "wandah", "wanto", NULL };
+    static const char *kw[] = {
+        "wanda", "wonda", "wandah", "wanto", "wandi", "wandy", "uanda", NULL
+    };
     const char *hit = NULL;
     size_t hitlen = 0;
     for (int i = 0; kw[i] != NULL; i++) {
@@ -158,7 +160,8 @@ static bool wait_for_trigger(char **out_initial)
                 if (reminders_any_due(time(NULL))) { start = false; break; }
                 if (xSemaphoreTake(s_talk_sem, 0) == pdTRUE) break;   /* tapped */
                 bool speech = false;
-                size_t n = mic_record_vad(pcm, WAKE_LISTEN_SECONDS, &speech);
+                /* Short trail: react quickly to a "Wanda" call. */
+                size_t n = mic_record_window(pcm, WAKE_LISTEN_SECONDS, 800, &speech);
                 if (!speech) continue;            /* silence: skip the STT call */
                 char *t = stt_transcribe(pcm, n);
                 if (t != NULL) ESP_LOGI(TAG, "wake-listen heard: '%s'", t);
