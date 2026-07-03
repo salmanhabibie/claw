@@ -10,3 +10,8 @@ sdkconfig.old
 .vscode/
 managed_components/
 dependencies.lock
+
+# Locally vendored copies of the registry dependencies (used only where
+# components.espressif.com is unreachable; normal builds fetch them via
+# main/idf_component.yml instead)
+components/
