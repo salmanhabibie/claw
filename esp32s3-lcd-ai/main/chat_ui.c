@@ -7,6 +7,7 @@
 #include "lvgl.h"
 #include "esp_lvgl_port.h"
 #include "esp_log.h"
+#include "esp_random.h"
 
 #include "audio.h"
 #include "board.h"
@@ -26,11 +27,17 @@ static lv_obj_t *s_eye_l;
 static lv_obj_t *s_eye_r;
 static lv_obj_t *s_mouth;
 static lv_obj_t *s_dot;            /* orbiting "thinking" loader */
+static lv_obj_t *s_smile;          /* friendly resting smile (idle only) */
 static lv_obj_t *s_settings;       /* full-screen settings overlay (hidden) */
 static lv_obj_t *s_vol_val;        /* "Volume  NN%" label */
 static lv_obj_t *s_bri_val;        /* "Kecerahan  NN%" label */
 static SemaphoreHandle_t s_talk_sem;
 static ui_state_t s_state = UI_IDLE;
+
+/* Current eye offset from the resting spot; x- and y- animations write these
+ * independently so glance + bob can run together without fighting over align. */
+static int32_t s_eye_dx = 0;
+static int32_t s_eye_dy = 0;
 
 /* Face geometry (412x412 round panel). */
 #define EYE_W      66
@@ -62,18 +69,35 @@ static const lv_font_t *TITLE_FONT = NULL;
 
 /* ---- animation exec callbacks (drive both eyes / the mouth together) ---- */
 
+/* Realign both eyes from the current dx/dy so x- and y- animations compose. */
+static void eyes_realign(void)
+{
+    lv_obj_align(s_eye_l, LV_ALIGN_CENTER, -EYE_GAP + s_eye_dx, EYE_Y + s_eye_dy);
+    lv_obj_align(s_eye_r, LV_ALIGN_CENTER,  EYE_GAP + s_eye_dx, EYE_Y + s_eye_dy);
+}
+
+/* Squash & stretch: as the eye shortens it bulges a little wider, so a blink
+ * springs instead of collapsing flat. */
 static void eye_h_exec(void *v, int32_t h)
 {
     (void)v;
-    lv_obj_set_height(s_eye_l, h);
-    lv_obj_set_height(s_eye_r, h);
+    int32_t w = EYE_W + (EYE_H - h) * 12 / 100;
+    lv_obj_set_size(s_eye_l, w, h);
+    lv_obj_set_size(s_eye_r, w, h);
 }
 
 static void eye_x_exec(void *v, int32_t x)
 {
     (void)v;
-    lv_obj_align(s_eye_l, LV_ALIGN_CENTER, -EYE_GAP + x, EYE_Y);
-    lv_obj_align(s_eye_r, LV_ALIGN_CENTER,  EYE_GAP + x, EYE_Y);
+    s_eye_dx = x;
+    eyes_realign();
+}
+
+static void eye_y_exec(void *v, int32_t y)
+{
+    (void)v;
+    s_eye_dy = y;
+    eyes_realign();
 }
 
 static void mouth_h_exec(void *v, int32_t h)
@@ -93,6 +117,13 @@ static void dot_orbit_exec(void *v, int32_t deg)
     lv_obj_align(s_dot, LV_ALIGN_CENTER, x, y);
 }
 
+/* Gently pulse the loader dot's size so it breathes while it spins. */
+static void dot_size_exec(void *v, int32_t s)
+{
+    (void)v;
+    lv_obj_set_size(s_dot, s, s);
+}
+
 /* ---- helpers ---- */
 
 static void set_eyes(int w, int h, uint32_t color)
@@ -101,8 +132,9 @@ static void set_eyes(int w, int h, uint32_t color)
     lv_obj_set_size(s_eye_r, w, h);
     lv_obj_set_style_bg_color(s_eye_l, lv_color_hex(color), 0);
     lv_obj_set_style_bg_color(s_eye_r, lv_color_hex(color), 0);
-    lv_obj_align(s_eye_l, LV_ALIGN_CENTER, -EYE_GAP, EYE_Y);
-    lv_obj_align(s_eye_r, LV_ALIGN_CENTER,  EYE_GAP, EYE_Y);
+    s_eye_dx = 0;
+    s_eye_dy = 0;
+    eyes_realign();
 }
 
 static void anim_eye_height(int from, int to, uint32_t dur, bool loop)
@@ -128,6 +160,21 @@ static void anim_eye_glance(void)
     lv_anim_set_values(&a, -14, 14);
     lv_anim_set_duration(&a, 600);
     lv_anim_set_reverse_duration(&a, 600);
+    lv_anim_set_repeat_count(&a, LV_ANIM_REPEAT_INFINITE);
+    lv_anim_set_path_cb(&a, lv_anim_path_ease_in_out);
+    lv_anim_start(&a);
+}
+
+/* Gentle up/down nod, used while speaking so the face feels alive. */
+static void anim_eye_bob(void)
+{
+    lv_anim_t a;
+    lv_anim_init(&a);
+    lv_anim_set_var(&a, s_eye_l);
+    lv_anim_set_exec_cb(&a, eye_y_exec);
+    lv_anim_set_values(&a, -5, 5);
+    lv_anim_set_duration(&a, 520);
+    lv_anim_set_reverse_duration(&a, 520);
     lv_anim_set_repeat_count(&a, LV_ANIM_REPEAT_INFINITE);
     lv_anim_set_path_cb(&a, lv_anim_path_ease_in_out);
     lv_anim_start(&a);
@@ -159,13 +206,94 @@ static void anim_dot_orbit(void)
     lv_anim_start(&a);
 }
 
-/* Periodic blink, only while idle. */
-static void blink_timer_cb(lv_timer_t *t)
+/* Size pulse for the loader dot (paired with the orbit spin). */
+static void anim_dot_pulse(void)
+{
+    lv_anim_t a;
+    lv_anim_init(&a);
+    lv_anim_set_var(&a, s_dot);
+    lv_anim_set_exec_cb(&a, dot_size_exec);
+    lv_anim_set_values(&a, 16, 26);
+    lv_anim_set_duration(&a, 500);
+    lv_anim_set_reverse_duration(&a, 500);
+    lv_anim_set_repeat_count(&a, LV_ANIM_REPEAT_INFINITE);
+    lv_anim_set_path_cb(&a, lv_anim_path_ease_in_out);
+    lv_anim_start(&a);
+}
+
+/* Two white catch-lights per eye — the single biggest "cute" cue. They are
+ * children of the eye, so they move, squash and clip along with it for free. */
+static void add_sparkle(lv_obj_t *eye)
+{
+    lv_obj_t *big = lv_obj_create(eye);
+    lv_obj_remove_style_all(big);
+    lv_obj_set_style_bg_opa(big, LV_OPA_COVER, 0);
+    lv_obj_set_style_bg_color(big, lv_color_hex(0xffffff), 0);
+    lv_obj_set_style_radius(big, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_size(big, 20, 20);
+    lv_obj_align(big, LV_ALIGN_TOP_MID, -8, 12);
+    lv_obj_remove_flag(big, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_remove_flag(big, LV_OBJ_FLAG_SCROLLABLE);
+
+    lv_obj_t *tiny = lv_obj_create(eye);
+    lv_obj_remove_style_all(tiny);
+    lv_obj_set_style_bg_opa(tiny, LV_OPA_COVER, 0);
+    lv_obj_set_style_bg_color(tiny, lv_color_hex(0xffffff), 0);
+    lv_obj_set_style_radius(tiny, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_size(tiny, 9, 9);
+    lv_obj_align(tiny, LV_ALIGN_TOP_MID, 12, 36);
+    lv_obj_remove_flag(tiny, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_remove_flag(tiny, LV_OBJ_FLAG_SCROLLABLE);
+}
+
+/* One blink: eyes snap closed and spring back (there-and-back once). */
+static void do_blink(void)
+{
+    anim_eye_height(EYE_H, 8, 90, false);
+}
+
+/* Second half of a double blink, fired shortly after the first. */
+static void second_blink_cb(lv_timer_t *t)
 {
     (void)t;
     if (s_state == UI_IDLE) {
-        anim_eye_height(EYE_H, 8, 90, false);
+        do_blink();
     }
+}
+
+/* A quick curious glance to one (random) side and back. */
+static void idle_glance(void)
+{
+    int dir = (esp_random() & 1) ? 1 : -1;
+    lv_anim_t a;
+    lv_anim_init(&a);
+    lv_anim_set_var(&a, s_eye_l);
+    lv_anim_set_exec_cb(&a, eye_x_exec);
+    lv_anim_set_values(&a, 0, dir * 18);
+    lv_anim_set_duration(&a, 340);
+    lv_anim_set_reverse_duration(&a, 340);
+    lv_anim_set_path_cb(&a, lv_anim_path_ease_in_out);
+    lv_anim_start(&a);
+}
+
+/* Idle antics: mostly single blinks, sometimes a double blink or a curious
+ * glance, re-armed on an irregular interval so it never looks robotic. */
+static void blink_timer_cb(lv_timer_t *t)
+{
+    if (s_state == UI_IDLE) {
+        uint32_t r = esp_random() % 100;
+        if (r < 15) {
+            idle_glance();
+        } else if (r < 35) {
+            do_blink();
+            lv_timer_t *again = lv_timer_create(second_blink_cb, 240, NULL);
+            lv_timer_set_repeat_count(again, 1);   /* auto-deletes after firing */
+        } else {
+            do_blink();
+        }
+    }
+    /* Re-arm at a random 2.0–4.4 s interval for natural, uneven blinking. */
+    lv_timer_set_period(t, 2000 + (esp_random() % 2400));
 }
 
 static void talk_cb(lv_event_t *e)
@@ -383,9 +511,11 @@ void chat_ui_init(SemaphoreHandle_t talk_sem)
         lv_obj_remove_style_all(eyes[i]);
         lv_obj_set_style_bg_opa(eyes[i], LV_OPA_COVER, 0);
         lv_obj_set_style_bg_color(eyes[i], lv_color_hex(COL_IDLE), 0);
-        lv_obj_set_style_radius(eyes[i], 28, 0);
+        lv_obj_set_style_radius(eyes[i], 33, 0);   /* rounder, pill-shaped */
+        lv_obj_set_style_clip_corner(eyes[i], true, 0);
         lv_obj_remove_flag(eyes[i], LV_OBJ_FLAG_CLICKABLE);
         lv_obj_remove_flag(eyes[i], LV_OBJ_FLAG_SCROLLABLE);
+        add_sparkle(eyes[i]);                       /* white catch-lights */
     }
 
     /* Mouth (hidden unless speaking). */
@@ -399,6 +529,22 @@ void chat_ui_init(SemaphoreHandle_t talk_sem)
     lv_obj_remove_flag(s_mouth, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_remove_flag(s_mouth, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_flag(s_mouth, LV_OBJ_FLAG_HIDDEN);
+
+    /* Friendly resting smile: the lower arc of a circle (shown only while idle).
+     * Only the indicator arc is drawn — background arc and knob are hidden. */
+    s_smile = lv_arc_create(scr);
+    lv_obj_remove_style_all(s_smile);
+    lv_obj_set_size(s_smile, 118, 118);
+    lv_arc_set_bg_angles(s_smile, 35, 145);
+    lv_arc_set_angles(s_smile, 35, 145);
+    lv_obj_set_style_arc_color(s_smile, lv_color_hex(COL_IDLE), LV_PART_INDICATOR);
+    lv_obj_set_style_arc_width(s_smile, 10, LV_PART_INDICATOR);
+    lv_obj_set_style_arc_rounded(s_smile, true, LV_PART_INDICATOR);
+    lv_obj_set_style_arc_opa(s_smile, LV_OPA_TRANSP, LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(s_smile, LV_OPA_TRANSP, LV_PART_KNOB);
+    lv_obj_align(s_smile, LV_ALIGN_CENTER, 0, 44);
+    lv_obj_remove_flag(s_smile, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_flag(s_smile, LV_OBJ_FLAG_HIDDEN);
 
     /* Orbiting loader dot (shown only while thinking). */
     s_dot = lv_obj_create(scr);
@@ -475,10 +621,12 @@ void chat_ui_set_state(ui_state_t state)
     if (state == UI_IDLE) {
         lv_obj_remove_flag(s_clock, LV_OBJ_FLAG_HIDDEN);
         lv_obj_remove_flag(s_clocksub, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_remove_flag(s_smile, LV_OBJ_FLAG_HIDDEN);
         lv_obj_add_flag(s_status, LV_OBJ_FLAG_HIDDEN);
     } else {
         lv_obj_add_flag(s_clock, LV_OBJ_FLAG_HIDDEN);
         lv_obj_add_flag(s_clocksub, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(s_smile, LV_OBJ_FLAG_HIDDEN);
         lv_obj_remove_flag(s_status, LV_OBJ_FLAG_HIDDEN);
     }
 
@@ -492,12 +640,16 @@ void chat_ui_set_state(ui_state_t state)
         break;
     case UI_THINKING:
         set_eyes(EYE_W, EYE_H, COL_THINK);
+        s_eye_dy = -10;                                   /* look up, pondering */
+        eyes_realign();
         anim_eye_glance();                                /* look side to side */
         lv_obj_remove_flag(s_dot, LV_OBJ_FLAG_HIDDEN);
         anim_dot_orbit();                                 /* spinning loader */
+        anim_dot_pulse();                                 /* ...that also breathes */
         break;
     case UI_SPEAKING:
         set_eyes(EYE_W, EYE_H - 20, COL_SPEAK);           /* happy squint */
+        anim_eye_bob();                                   /* nod along */
         lv_obj_remove_flag(s_mouth, LV_OBJ_FLAG_HIDDEN);
         anim_mouth();                                     /* talking mouth */
         break;
