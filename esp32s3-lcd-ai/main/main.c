@@ -49,13 +49,10 @@ static const char *TAG = "app";
 static SemaphoreHandle_t s_talk_sem;
 static bool s_wake_ok;          /* true if a wake word model loaded */
 
-/* Shake reaction: startled face + a small chime. chat_ui_startle() only plays
- * while idle, which also keeps the chime from talking over TTS audio. */
+/* Shake reaction: just the startled face (no sound), and only while idle. */
 static void on_shake(void)
 {
-    if (chat_ui_startle()) {
-        audio_play_chime();
-    }
+    chat_ui_startle();
 }
 
 /* Stop here without rebooting, logging why (keeps the USB console alive). */

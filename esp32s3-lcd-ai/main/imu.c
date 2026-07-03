@@ -17,6 +17,7 @@ static const char *TAG = "imu";
 #define REG_CTRL2      0x03     /* accel full-scale + output data rate */
 #define REG_CTRL7      0x08     /* sensor enables (bit0 = accel) */
 #define REG_AX_L       0x35     /* AX_L..AZ_H, 6 bytes, little-endian */
+#define REG_RESET      0x60     /* write 0xb0 = soft reset */
 
 #define WHO_AM_I_VAL   0x05
 #define ACCEL_LSB_PER_G 8192.0f /* at +/-4 g, 16-bit */
@@ -26,6 +27,17 @@ static const char *TAG = "imu";
 #define SHAKE_THRESHOLD_G  0.5f
 #define SHAKE_COOLDOWN_MS  4000
 #define POLL_MS            50
+
+/* The detector only arms after this many consecutive plausible readings
+ * (a resting accelerometer must show ~1 g of gravity). Bogus data - zeros,
+ * byte-swapped values, a wedged bus - never arms it, so a misbehaving sensor
+ * can't fire the reaction (and its chime) over and over. */
+#define ARM_SANE_SAMPLES   20
+#define SANE_MIN_G         0.6f
+#define SANE_MAX_G         1.4f
+/* A real jolt must persist for 2 consecutive samples; single-sample spikes
+ * (bus glitches) are ignored. */
+#define TRIGGER_SAMPLES    2
 
 static uint8_t s_addr;          /* 0x6a or 0x6b, discovered at probe time */
 static imu_shake_cb_t s_cb;
@@ -61,12 +73,37 @@ static void imu_task(void *arg)
 {
     (void)arg;
     TickType_t last_shake = 0;
+    int sane = 0;               /* consecutive plausible readings */
+    int over = 0;               /* consecutive over-threshold readings */
+    bool armed = false;
+    bool warned = false;
+
     for (;;) {
         vTaskDelay(pdMS_TO_TICKS(POLL_MS));
         float mag = accel_magnitude();
-        if (mag < 0.0f) continue;
+        if (mag < 0.0f) continue;                      /* I2C read error */
 
-        if (fabsf(mag - 1.0f) > SHAKE_THRESHOLD_G) {
+        if (!armed) {
+            /* Prove the sensor is sane (resting reads ~1 g) before trusting
+             * it. Junk data keeps the detector disarmed - and silent. */
+            sane = (mag >= SANE_MIN_G && mag <= SANE_MAX_G) ? sane + 1 : 0;
+            if (sane >= ARM_SANE_SAMPLES) {
+                armed = true;
+                over = 0;
+                if (!warned) ESP_LOGI(TAG, "shake detector armed (|a|=%.2f g)", mag);
+            } else if (sane == 0 && !warned) {
+                warned = true;
+                ESP_LOGW(TAG, "implausible accel data (|a|=%.2f g); "
+                              "shake reaction stays off until it settles", mag);
+            }
+            continue;
+        }
+
+        over = (fabsf(mag - 1.0f) > SHAKE_THRESHOLD_G) ? over + 1 : 0;
+        if (over >= TRIGGER_SAMPLES) {
+            over = 0;
+            armed = false;                              /* re-prove sanity */
+            sane = 0;
             TickType_t now = xTaskGetTickCount();
             if ((now - last_shake) >= pdMS_TO_TICKS(SHAKE_COOLDOWN_MS)) {
                 last_shake = now;
@@ -92,6 +129,8 @@ esp_err_t imu_init(imu_shake_cb_t on_shake)
     return ESP_ERR_NOT_FOUND;
 
 found:
+    reg_write(REG_RESET, 0xb0);          /* known state, whatever ran before */
+    vTaskDelay(pdMS_TO_TICKS(20));
     reg_write(REG_CTRL1, 0x40);          /* auto-increment reads */
     reg_write(REG_CTRL2, 0x16);          /* accel +/-4 g, ~125 Hz */
     reg_write(REG_CTRL7, 0x01);          /* enable the accelerometer */
