@@ -27,6 +27,7 @@
 #include "reminders.h"
 #include "memory.h"
 #include "sdcard.h"
+#include "imu.h"
 
 static const char *TAG = "app";
 
@@ -47,6 +48,15 @@ static const char *TAG = "app";
 
 static SemaphoreHandle_t s_talk_sem;
 static bool s_wake_ok;          /* true if a wake word model loaded */
+
+/* Shake reaction: startled face + a small chime. chat_ui_startle() only plays
+ * while idle, which also keeps the chime from talking over TTS audio. */
+static void on_shake(void)
+{
+    if (chat_ui_startle()) {
+        audio_play_chime();
+    }
+}
 
 /* Stop here without rebooting, logging why (keeps the USB console alive). */
 static void halt(const char *why)
@@ -374,6 +384,9 @@ void app_main(void)
     /* microSD (journal + TTS cache). Non-fatal: no card just means the
      * journal/recall tools answer "not available" and TTS always streams. */
     sd_init(expander);
+
+    /* IMU shake watcher ("kaget" reaction). Non-fatal without the sensor. */
+    imu_init(on_shake);
 
     /* Speaker (PCM5101). Non-fatal: the UI still works without audio. */
     if (audio_init() != ESP_OK) {

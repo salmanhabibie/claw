@@ -35,6 +35,7 @@ static lv_obj_t *s_bri_val;        /* "Kecerahan  NN%" label */
 static lv_obj_t *s_sd_val;         /* "SD: ..." status label */
 static SemaphoreHandle_t s_talk_sem;
 static ui_state_t s_state = UI_IDLE;
+static bool s_startled;            /* true during the brief "kaget" reaction */
 
 /* Current eye offset from the resting spot; x- and y- animations write these
  * independently so glance + bob can run together without fighting over align. */
@@ -282,7 +283,7 @@ static void idle_glance(void)
  * glance, re-armed on an irregular interval so it never looks robotic. */
 static void blink_timer_cb(lv_timer_t *t)
 {
-    if (s_state == UI_IDLE) {
+    if (s_state == UI_IDLE && !s_startled) {
         uint32_t r = esp_random() % 100;
         if (r < 15) {
             idle_glance();
@@ -673,4 +674,60 @@ void chat_ui_set_state(ui_state_t state)
         break;
     }
     lvgl_port_unlock();
+}
+
+/* ---- "kaget" (startled) reaction, fired by the IMU on a shake ---- */
+
+/* Calm back down: restore the idle face after the reaction. */
+static void startle_end_cb(lv_timer_t *t)
+{
+    (void)t;
+    s_startled = false;
+    if (s_state == UI_IDLE) {
+        lv_anim_delete(s_eye_l, NULL);
+        set_eyes(EYE_W, EYE_H, COL_IDLE);
+    }
+}
+
+bool chat_ui_startle(void)
+{
+    if (s_eye_l == NULL) {
+        return false;
+    }
+    lvgl_port_lock(0);
+    /* Only react while idle; mid-conversation a jolt shouldn't derail the
+     * face, and s_startled debounces overlapping reactions. */
+    if (s_state != UI_IDLE || s_startled) {
+        lvgl_port_unlock();
+        return false;
+    }
+    s_startled = true;
+
+    lv_anim_delete(s_eye_l, NULL);
+
+    /* Eyes pop wide open and jump up... */
+    lv_obj_set_size(s_eye_l, EYE_W + 16, EYE_H + 24);
+    lv_obj_set_size(s_eye_r, EYE_W + 16, EYE_H + 24);
+    s_eye_dx = 0;
+    s_eye_dy = -14;
+    eyes_realign();
+
+    /* ...and tremble left-right a few times. */
+    lv_anim_t a;
+    lv_anim_init(&a);
+    lv_anim_set_var(&a, s_eye_l);
+    lv_anim_set_exec_cb(&a, eye_x_exec);
+    lv_anim_set_values(&a, -14, 14);
+    lv_anim_set_duration(&a, 90);
+    lv_anim_set_reverse_duration(&a, 90);
+    lv_anim_set_repeat_count(&a, 3);
+    lv_anim_set_path_cb(&a, lv_anim_path_ease_in_out);
+    lv_anim_start(&a);
+
+    /* Settle back to the calm face once the trembling is over. */
+    lv_timer_t *end = lv_timer_create(startle_end_cb, 950, NULL);
+    lv_timer_set_repeat_count(end, 1);   /* auto-deletes after firing */
+
+    lvgl_port_unlock();
+    return true;
 }

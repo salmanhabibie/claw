@@ -13,6 +13,7 @@ set(srcs
     "reminders.c"
     "memory.c"
     "sdcard.c"
+    "imu.c"
 )
 
 set(reqs

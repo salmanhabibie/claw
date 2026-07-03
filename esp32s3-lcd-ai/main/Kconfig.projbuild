@@ -91,10 +91,11 @@ menu "AI Assistant Configuration"
 
     config ELEVENLABS_VOICE_ID
         string "ElevenLabs voice ID"
-        default "21m00Tcm4TlvDq8ikWAM"
+        default "cgSgspJ2msm6clMCkdW9"
         help
-            Which ElevenLabs voice to speak with. The default is a built-in
-            voice. Browse voices in the ElevenLabs dashboard for others.
+            Which ElevenLabs voice to speak with. The default is "Jessica",
+            a young playful built-in voice (multilingual, speaks Indonesian).
+            Browse voices in the ElevenLabs dashboard for others.
 
     config ELEVENLABS_MODEL
         string "ElevenLabs TTS model"
