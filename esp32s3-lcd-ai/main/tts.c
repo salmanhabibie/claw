@@ -1,9 +1,12 @@
 #include "tts.h"
 #include "audio.h"
+#include "sdcard.h"
 
 #include <stdlib.h>
 #include <string.h>
 #include <stdbool.h>
+#include <stdint.h>
+#include <stdio.h>
 
 #include "esp_log.h"
 #include "esp_heap_caps.h"
@@ -12,6 +15,26 @@
 #include "cJSON.h"
 
 static const char *TAG = "tts";
+
+/* Cache clips only up to this text length: short phrases (greetings,
+ * reminders, confirmations) repeat a lot; long unique answers don't. */
+#define TTS_CACHE_TEXT_MAX 600
+
+/* FNV-1a over voice + model + text -> stable 8-hex-char cache key. */
+static void cache_key(const char *text, char out[16])
+{
+    uint32_t h = 2166136261u;
+    const char *parts[] = { CONFIG_ELEVENLABS_VOICE_ID, CONFIG_ELEVENLABS_MODEL,
+                            text };
+    for (size_t p = 0; p < 3; p++) {
+        for (const char *s = parts[p]; *s; s++) {
+            h ^= (uint8_t)*s;
+            h *= 16777619u;
+        }
+        h ^= 0xff; h *= 16777619u;       /* separator so fields can't blend */
+    }
+    snprintf(out, 16, "%08lx", (unsigned long)h);
+}
 
 /* ElevenLabs streams raw 16-bit mono PCM (output_format=pcm_24000). We collect
  * the WHOLE clip into a PSRAM buffer first, then play it in one smooth pass.
@@ -55,6 +78,20 @@ void tts_say(const char *text)
     if (strlen(CONFIG_ELEVENLABS_API_KEY) == 0) {
         ESP_LOGE(TAG, "no ElevenLabs API key configured");
         return;
+    }
+
+    /* SD cache first: a hit skips the network entirely (instant + free). */
+    bool cacheable = strlen(text) <= TTS_CACHE_TEXT_MAX;
+    char key[16] = {0};
+    if (cacheable) {
+        cache_key(text, key);
+        size_t clen = 0;
+        uint8_t *clip = sd_tts_cache_get(key, &clen);
+        if (clip != NULL) {
+            audio_play_mono16(clip, clen & ~(size_t)1);
+            free(clip);
+            return;
+        }
     }
 
     cJSON *root = cJSON_CreateObject();
@@ -119,6 +156,9 @@ void tts_say(const char *text)
                  (unsigned)st.len, st.len / 2.0f / 24000.0f);
         /* One smooth pass from the complete buffer — no network-stall gaps. */
         audio_play_mono16(st.buf, st.len & ~(size_t)1);
+        if (cacheable) {
+            sd_tts_cache_put(key, st.buf, st.len & ~(size_t)1);
+        }
     }
     free(st.buf);
 }

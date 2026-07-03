@@ -12,6 +12,7 @@
 #include "audio.h"
 #include "board.h"
 #include "reminders.h"
+#include "sdcard.h"
 
 #if CONFIG_WANDA_BLE_PROV
 #include "esp_system.h"   /* esp_restart() */
@@ -31,6 +32,7 @@ static lv_obj_t *s_smile;          /* friendly resting smile (idle only) */
 static lv_obj_t *s_settings;       /* full-screen settings overlay (hidden) */
 static lv_obj_t *s_vol_val;        /* "Volume  NN%" label */
 static lv_obj_t *s_bri_val;        /* "Kecerahan  NN%" label */
+static lv_obj_t *s_sd_val;         /* "SD: ..." status label */
 static SemaphoreHandle_t s_talk_sem;
 static ui_state_t s_state = UI_IDLE;
 
@@ -383,6 +385,17 @@ static void settings_open_cb(lv_event_t *e)
 {
     (void)e;
     if (s_settings != NULL) {
+        /* Refresh the SD line each time the panel opens. */
+        if (s_sd_val != NULL) {
+            uint32_t total = 0, freem = 0;
+            if (sd_info(&total, &freem)) {
+                lv_label_set_text_fmt(s_sd_val, "SD  %lu.%lu GB kosong",
+                                      (unsigned long)(freem >> 10),
+                                      (unsigned long)((freem & 1023) * 10 / 1024));
+            } else {
+                lv_label_set_text(s_sd_val, "SD  tidak terpasang");
+            }
+        }
         lv_obj_remove_flag(s_settings, LV_OBJ_FLAG_HIDDEN);
     }
 }
@@ -440,6 +453,11 @@ static void build_settings(lv_obj_t *scr)
     lv_slider_set_range(bsl, 10, 100);   /* never fully dark */
     lv_slider_set_value(bsl, bri, LV_ANIM_OFF);
     lv_obj_add_event_cb(bsl, bri_slider_cb, LV_EVENT_VALUE_CHANGED, NULL);
+
+    /* SD card status (text refreshed in settings_open_cb). */
+    s_sd_val = lv_label_create(s_settings);
+    lv_label_set_text(s_sd_val, "SD  -");
+    lv_obj_set_style_text_color(s_sd_val, lv_color_hex(0x7d8b9c), 0);
 
     /* Wake-word listening toggle ("Wanda" via STT; uses data while on). */
     lv_obj_t *wlbl = lv_label_create(s_settings);

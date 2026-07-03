@@ -26,6 +26,29 @@ tap screen ─▶ record mic (5s) ─▶ ElevenLabs STT ─▶ Claude (+ tools) 
   - `get_weather` — live weather via wttr.in
   - `get_crypto_price` — live prices via CoinGecko (USD + IDR)
   - `ha_list_entities` / `ha_call_service` / `ha_get_state` — Home Assistant
+  - `recall_conversation` / `sd_card_status` — search the SD-card journal
+
+## microSD (optional but useful)
+
+Insert any FAT32 microSD and Wanda starts using it automatically (no card =
+everything still works, features below just switch off):
+
+- **TTS cache** — every spoken reply ≤600 chars is stored as raw PCM keyed by
+  a hash of (voice, model, text). Repeats (greeting, reminders, confirmations)
+  play instantly from the card instead of calling ElevenLabs again: faster and
+  cheaper.
+- **Conversation journal** — every turn is appended to
+  `wanda/jurnal/YYYY-MM.txt`. Ask "kemarin aku bilang apa soal belanja?" and
+  Claude searches it with the `recall_conversation` tool. The card is plain
+  FAT32, so you can also pop it into a PC and read the journal directly.
+- **Boot log** — `wanda/boot.log` records each boot's reset reason (handy for
+  field debugging).
+- The settings panel (long-press) shows the card's free space.
+
+Wiring quirk: the SD chip-select is on the TCA9554 expander (EXIO3), which is
+far too slow for the sdspi driver to toggle per transaction. Since the card is
+alone on its SPI bus, EXIO3 is simply parked LOW and the driver runs with
+`SDSPI_SLOT_NO_CS`.
 
 ## Hardware
 

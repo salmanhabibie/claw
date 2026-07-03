@@ -36,6 +36,9 @@ static const char *SYSTEM_PROMPT =
     "Kamu punya ingatan jangka panjang: simpan nama pengguna dengan set_user_name, "
     "simpan preferensi/catatan/daftar (mis. daftar belanja) dengan remember, dan "
     "hapus dengan forget. Manfaatkan ingatan itu untuk menjawab tanpa bertanya ulang. "
+    "Percakapan juga tercatat di jurnal kartu SD: pakai recall_conversation untuk "
+    "mencari obrolan lampau (mis. 'kemarin aku bilang apa'), dan sd_card_status "
+    "untuk mengecek kartu SD. "
     "Bila diminta 'kabar hari ini' atau briefing, sapa sesuai waktu, sebutkan hari "
     "dan tanggal serta jam, lalu cuaca kota pengguna (pakai get_weather; kalau "
     "kotanya belum diketahui, tanyakan atau ingat lewat remember) dan pengingat "
@@ -157,6 +160,16 @@ static const char *TOOLS_JSON =
   "\"description\":\"Hapus catatan yang diingat. Isi note untuk menghapus yang mengandung kata itu (mis. 'telur'), atau kosongkan untuk menghapus semua catatan.\","
   "\"input_schema\":{\"type\":\"object\",\"properties\":{"
     "\"note\":{\"type\":\"string\",\"description\":\"Kata kunci catatan yang dihapus; kosong = hapus semua\"}}}"
+"},{"
+  "\"name\":\"recall_conversation\","
+  "\"description\":\"Cari di jurnal percakapan (kartu SD) berisi semua obrolan dua bulan terakhir. Gunakan saat pengguna menanyakan percakapan lampau, mis. 'kemarin aku bilang apa soal belanja' atau 'kapan terakhir kita bahas lampu'.\","
+  "\"input_schema\":{\"type\":\"object\",\"properties\":{"
+    "\"query\":{\"type\":\"string\",\"description\":\"Kata kunci pencarian, mis. belanja, lampu, obat\"}},"
+    "\"required\":[\"query\"]}"
+"},{"
+  "\"name\":\"sd_card_status\","
+  "\"description\":\"Cek kartu SD perangkat: terpasang atau tidak, kapasitas total dan ruang kosong.\","
+  "\"input_schema\":{\"type\":\"object\",\"properties\":{}}"
 "}]";
 
 /* ---- HTTP plumbing ---- */

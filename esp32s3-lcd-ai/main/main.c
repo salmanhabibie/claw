@@ -26,6 +26,7 @@
 #include "wake.h"
 #include "reminders.h"
 #include "memory.h"
+#include "sdcard.h"
 
 static const char *TAG = "app";
 
@@ -195,6 +196,7 @@ static void announce_due_reminders(void)
     char msg[96];
     while (reminders_pop_due(time(NULL), msg, sizeof(msg))) {
         ESP_LOGI(TAG, "reminder fired: %s", msg);
+        sd_journal_append("Pengingat", msg);
         chat_ui_set_status("Pengingat!");
         chat_ui_set_response(msg);
         chat_ui_set_state(UI_SPEAKING);
@@ -303,6 +305,7 @@ static void voice_task(void *arg)
                 break;   /* user said "diam"/"stop" -> end the conversation */
             }
 
+            sd_journal_append("Aku", text);
             chat_ui_set_status("Berpikir...");
             chat_ui_set_state(UI_THINKING);
             char *reply = claude_ask(text);
@@ -312,6 +315,7 @@ static void voice_task(void *arg)
                 break;
             }
             chat_ui_set_response(reply);
+            sd_journal_append("Wanda", reply);
 
             chat_ui_set_status("Berbicara...");
             chat_ui_set_state(UI_SPEAKING);
@@ -366,6 +370,10 @@ void app_main(void)
         halt("display (see the 'display' log line above for the failing step)");
     }
     ESP_LOGI(TAG, "display ready");
+
+    /* microSD (journal + TTS cache). Non-fatal: no card just means the
+     * journal/recall tools answer "not available" and TTS always streams. */
+    sd_init(expander);
 
     /* Speaker (PCM5101). Non-fatal: the UI still works without audio. */
     if (audio_init() != ESP_OK) {
