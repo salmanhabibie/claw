@@ -26,8 +26,6 @@
 #include "wake.h"
 #include "reminders.h"
 #include "memory.h"
-#include "sdcard.h"
-#include "imu.h"
 
 static const char *TAG = "app";
 
@@ -48,12 +46,6 @@ static const char *TAG = "app";
 
 static SemaphoreHandle_t s_talk_sem;
 static bool s_wake_ok;          /* true if a wake word model loaded */
-
-/* Shake reaction: just the startled face (no sound), and only while idle. */
-static void on_shake(void)
-{
-    chat_ui_startle();
-}
 
 /* Stop here without rebooting, logging why (keeps the USB console alive). */
 static void halt(const char *why)
@@ -203,7 +195,6 @@ static void announce_due_reminders(void)
     char msg[96];
     while (reminders_pop_due(time(NULL), msg, sizeof(msg))) {
         ESP_LOGI(TAG, "reminder fired: %s", msg);
-        sd_journal_append("Pengingat", msg);
         chat_ui_set_status("Pengingat!");
         chat_ui_set_response(msg);
         chat_ui_set_state(UI_SPEAKING);
@@ -312,7 +303,6 @@ static void voice_task(void *arg)
                 break;   /* user said "diam"/"stop" -> end the conversation */
             }
 
-            sd_journal_append("Aku", text);
             chat_ui_set_status("Berpikir...");
             chat_ui_set_state(UI_THINKING);
             char *reply = claude_ask(text);
@@ -322,7 +312,6 @@ static void voice_task(void *arg)
                 break;
             }
             chat_ui_set_response(reply);
-            sd_journal_append("Wanda", reply);
 
             chat_ui_set_status("Berbicara...");
             chat_ui_set_state(UI_SPEAKING);
@@ -377,13 +366,6 @@ void app_main(void)
         halt("display (see the 'display' log line above for the failing step)");
     }
     ESP_LOGI(TAG, "display ready");
-
-    /* microSD (journal + TTS cache). Non-fatal: no card just means the
-     * journal/recall tools answer "not available" and TTS always streams. */
-    sd_init(expander);
-
-    /* IMU shake watcher ("kaget" reaction). Non-fatal without the sensor. */
-    imu_init(on_shake);
 
     /* Speaker (PCM5101). Non-fatal: the UI still works without audio. */
     if (audio_init() != ESP_OK) {

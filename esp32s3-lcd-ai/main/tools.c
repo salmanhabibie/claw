@@ -1,7 +1,6 @@
 #include "tools.h"
 #include "reminders.h"
 #include "memory.h"
-#include "sdcard.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -486,57 +485,6 @@ static char *tool_forget(const cJSON *input)
     return strdup(out);
 }
 
-/* ====================== SD card: journal + status ====================== */
-
-/* Search the conversation journal on the SD card (this + previous month). */
-static char *tool_recall_conversation(const cJSON *input)
-{
-    if (!sd_mounted()) {
-        return strdup("Kartu SD tidak terpasang, jadi riwayat percakapan "
-                      "tidak tersedia.");
-    }
-    const char *q = cJSON_GetStringValue(cJSON_GetObjectItem(input, "query"));
-    if (q == NULL || q[0] == '\0') {
-        return strdup("Perlu kata kunci pencarian, mis. 'belanja' atau 'lampu'.");
-    }
-
-    char *buf = malloc(2600);
-    if (buf == NULL) return strdup("Memori penuh.");
-    int found = sd_journal_search(q, buf, 2500);
-    if (found == 0) {
-        free(buf);
-        char out[120];
-        snprintf(out, sizeof(out),
-                 "Tidak ada catatan berisi '%s' dalam dua bulan terakhir.", q);
-        return strdup(out);
-    }
-    /* Prefix a count so Claude knows whether the list was truncated. */
-    size_t blen = strlen(buf);
-    char *out = malloc(blen + 96);
-    if (out == NULL) return buf;
-    snprintf(out, blen + 96,
-             "%d baris cocok (maks 12 terbaru ditampilkan):\n%s", found, buf);
-    free(buf);
-    ESP_LOGI(TAG, "recall '%s': %d hits", q, found);
-    return out;
-}
-
-static char *tool_sd_card_status(const cJSON *input)
-{
-    (void)input;
-    uint32_t total = 0, freem = 0;
-    if (!sd_info(&total, &freem)) {
-        return strdup("Kartu SD tidak terpasang atau tidak terbaca.");
-    }
-    char out[160];
-    snprintf(out, sizeof(out),
-             "Kartu SD terpasang: total %lu.%lu GB, kosong %lu.%lu GB. "
-             "Dipakai untuk jurnal percakapan dan cache suara.",
-             (unsigned long)(total >> 10), (unsigned long)((total & 1023) * 10 / 1024),
-             (unsigned long)(freem >> 10), (unsigned long)((freem & 1023) * 10 / 1024));
-    return strdup(out);
-}
-
 char *tool_execute(const char *name, const cJSON *input)
 {
     if (name == NULL) return NULL;
@@ -552,8 +500,6 @@ char *tool_execute(const char *name, const cJSON *input)
     if (strcmp(name, "set_user_name") == 0)      return tool_set_user_name(input);
     if (strcmp(name, "remember") == 0)           return tool_remember(input);
     if (strcmp(name, "forget") == 0)             return tool_forget(input);
-    if (strcmp(name, "recall_conversation") == 0) return tool_recall_conversation(input);
-    if (strcmp(name, "sd_card_status") == 0)     return tool_sd_card_status(input);
     ESP_LOGW(TAG, "unknown tool: %s", name);
     return strdup("Alat itu tidak tersedia.");
 }

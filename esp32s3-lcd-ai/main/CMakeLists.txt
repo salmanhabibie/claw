@@ -12,8 +12,6 @@ set(srcs
     "wake.c"
     "reminders.c"
     "memory.c"
-    "sdcard.c"
-    "imu.c"
 )
 
 set(reqs
@@ -34,11 +32,6 @@ set(reqs
     esp_driver_i2s
     esp_driver_ledc
     esp_lcd
-    # microSD (journal + TTS cache)
-    esp_driver_sdspi
-    sdmmc
-    fatfs
-    vfs
     # managed components (see idf_component.yml)
     lvgl
     esp_lvgl_port

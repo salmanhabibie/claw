@@ -1,7 +1,5 @@
 #pragma once
 
-#include <stdbool.h>
-
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 
@@ -25,8 +23,3 @@ void chat_ui_set_response(const char *text);
 
 /* Switch the face animation to reflect what the assistant is doing. */
 void chat_ui_set_state(ui_state_t state);
-
-/* Brief "kaget" reaction (wide trembling eyes) for when the device is shaken.
- * Only plays while idle; returns true if the reaction actually started.
- * Thread-safe. */
-bool chat_ui_startle(void);
