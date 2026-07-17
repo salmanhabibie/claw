@@ -36,11 +36,8 @@ external_components:
       url: https://github.com/rcayadi/esphome-stella-smart.git
       ref: main
 
-# Ganti MAC address di bawah dengan MAC address perangkat Stella Smart-mu.
-# Cara mencari MAC address: scan BLE lewat aplikasi nRF Connect,
-# atau lihat log ESPHome saat proses BLE scan/pairing.
 ble_client:
-  - mac_address: "AA:BB:CC:DD:EE:FF"
+  - mac_address: "56:65:0B:04:22:63"
     id: stella_ble
 
 # stella_smart adalah daftar (list) perangkat, meski cuma punya satu diffuser
@@ -48,7 +45,7 @@ ble_client:
 stella_smart:
   - id: stella1
     ble_client_id: stella_ble
-    mac_address: "AA:BB:CC:DD:EE:FF"
+    mac_address: "56:65:0B:04:22:63"
     name: "Stella Diffuser"
 
     battery:
