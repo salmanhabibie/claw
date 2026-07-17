@@ -31,9 +31,10 @@ Home Assistant, memakai komponen eksternal
    Assistant saat menambah device baru). File `secrets.yaml` sudah masuk
    `.gitignore`, jangan sampai ke-commit.
 
-3. **Edit `stella-diffuser.yaml`**: ganti kedua `"AA:BB:CC:DD:EE:FF"`
-   (di blok `ble_client` dan `stella_smart`) dengan MAC address diffuser
-   kamu yang sebenarnya.
+3. **Edit `stella-diffuser.yaml`**: ganti nilai `stella_mac_address` di blok
+   `substitutions:` (paling atas file) dengan MAC address diffuser kamu yang
+   sebenarnya. Nilai ini otomatis dipakai di blok `ble_client` dan
+   `stella_smart`, jadi cuma perlu diganti di satu tempat.
 
 4. **Compile & flash** (sambungkan ESP32 via USB untuk flash pertama kali):
 

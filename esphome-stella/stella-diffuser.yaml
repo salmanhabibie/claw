@@ -1,3 +1,7 @@
+substitutions:
+  # Satu-satunya tempat buat ganti MAC address diffuser Stella-mu.
+  stella_mac_address: "56:65:0B:04:22:63"
+
 esphome:
   name: stella-diffuser
   friendly_name: Stella Diffuser
@@ -30,14 +34,19 @@ ota:
     password: !secret ota_password
 
 # Komponen eksternal Stella Smart (BLE diffuser) dari rcayadi/esphome-stella-smart
+# Dipin ke commit tertentu (bukan "main") biar build reproducible dan nggak
+# tiba-tiba berubah kalau upstream update.
 external_components:
   - source:
       type: git
       url: https://github.com/rcayadi/esphome-stella-smart.git
-      ref: main
+      ref: 83eb018a152eadc974924a37120f0750846df4a5
+
+# ble_client butuh esp32_ble_tracker aktif, kalau tidak config gagal compile.
+esp32_ble_tracker:
 
 ble_client:
-  - mac_address: "56:65:0B:04:22:63"
+  - mac_address: ${stella_mac_address}
     id: stella_ble
 
 # stella_smart adalah daftar (list) perangkat, meski cuma punya satu diffuser
@@ -45,7 +54,7 @@ ble_client:
 stella_smart:
   - id: stella1
     ble_client_id: stella_ble
-    mac_address: "56:65:0B:04:22:63"
+    mac_address: ${stella_mac_address}
     name: "Stella Diffuser"
 
     battery:
