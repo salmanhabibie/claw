@@ -1,0 +1,76 @@
+esphome:
+  name: stella-diffuser
+  friendly_name: Stella Diffuser
+
+esp32:
+  board: esp32dev
+  framework:
+    type: arduino
+
+# Isi nilai-nilai rahasia (WiFi, API key, OTA password) di secrets.yaml
+# Contoh format ada di secrets.yaml.example pada folder ini.
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+  ap:
+    ssid: "Stella-Diffuser Fallback"
+    password: !secret fallback_ap_password
+
+captive_portal:
+
+logger:
+
+api:
+  encryption:
+    key: !secret api_encryption_key
+
+ota:
+  - platform: esphome
+    password: !secret ota_password
+
+# Komponen eksternal Stella Smart (BLE diffuser) dari rcayadi/esphome-stella-smart
+external_components:
+  - source:
+      type: git
+      url: https://github.com/rcayadi/esphome-stella-smart.git
+      ref: main
+
+# Ganti MAC address di bawah dengan MAC address perangkat Stella Smart-mu.
+# Cara mencari MAC address: scan BLE lewat aplikasi nRF Connect,
+# atau lihat log ESPHome saat proses BLE scan/pairing.
+ble_client:
+  - mac_address: "AA:BB:CC:DD:EE:FF"
+    id: stella_ble
+
+# stella_smart adalah daftar (list) perangkat, meski cuma punya satu diffuser
+# tetap harus pakai format list ("- mac_address: ...").
+stella_smart:
+  - id: stella1
+    ble_client_id: stella_ble
+    mac_address: "AA:BB:CC:DD:EE:FF"
+    name: "Stella Diffuser"
+
+    battery:
+      name: "Stella Baterai"
+
+    spray_count:
+      name: "Stella Jumlah Semprot"
+
+    power:
+      name: "Stella Daya"
+
+    trigger_spray:
+      name: "Stella Semprot Sekarang"
+
+    reset_spray:
+      name: "Stella Reset Hitungan"
+
+    spray_duration:
+      name: "Stella Durasi Semprot"
+
+    timer_mode:
+      name: "Stella Mode Timer"
+
+    firmware_version:
+      name: "Stella Versi Firmware"
