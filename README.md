@@ -122,6 +122,27 @@ Semua diproses **di browser** — gambar tidak diunggah ke server mana pun.
 Butuh internet hanya saat pertama kali (mengunduh mesin OCR Tesseract.js);
 jika offline, deteksi memakai heuristik bentuk saja dan kategori bisa diatur manual.
 
+### Versi Windows (.exe) — paling praktis
+
+Tersedia **`PisahDokumen.exe`**: aplikasi jendela (GUI) untuk Windows,
+tidak perlu install Python/tesseract apa pun — mesin OCR sudah dibundel di dalamnya.
+
+Cara mendapatkan:
+
+1. Buka tab **Actions** di repo GitHub ini.
+2. Pilih run terbaru **"Build EXE (Windows)"** (yang hijau ✅).
+3. Di bagian **Artifacts**, unduh **`PisahDokumen-windows`** → ekstrak → jalankan `PisahDokumen.exe`.
+
+Cara pakai: pilih folder gambar → (opsional) folder hasil → klik
+**Mulai Deteksi & Pisahkan**. Gambar otomatis tersalin/terpindah ke subfolder
+`kartu-identitas/`, `sim-driver-license/`, `surat-dokumen/`, `lainnya/`.
+
+> Catatan: exe di-build otomatis oleh GitHub Actions
+> ([`.github/workflows/build-exe.yml`](.github/workflows/build-exe.yml))
+> dari [`pisah_dokumen_gui.py`](pisah_dokumen_gui.py). Saat pertama dibuka,
+> Windows SmartScreen mungkin memberi peringatan karena exe tidak
+> bertanda tangan digital — klik "More info" → "Run anyway".
+
 ### Versi CLI (Python)
 
 Butuh Pillow + pytesseract + program tesseract:

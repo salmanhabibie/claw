@@ -1,0 +1,58 @@
+name: Build EXE (Windows)
+
+on:
+  push:
+    branches:
+      - main
+      - claude/id-document-detection-app-ak3tz3
+    paths:
+      - "pisah_dokumen.py"
+      - "pisah_dokumen_gui.py"
+      - ".github/workflows/build-exe.yml"
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependensi Python
+        run: pip install pillow pytesseract pyinstaller
+
+      - name: Install Tesseract OCR
+        run: choco install tesseract -y --no-progress
+
+      - name: Siapkan bundel tesseract (exe + dll + bahasa ind/eng)
+        shell: pwsh
+        run: |
+          $src = "C:\Program Files\Tesseract-OCR"
+          New-Item -ItemType Directory -Force -Path tessbundle\tessdata | Out-Null
+          Copy-Item "$src\tesseract.exe" tessbundle\
+          Copy-Item "$src\*.dll" tessbundle\
+          Copy-Item "$src\tessdata\*.traineddata" tessbundle\tessdata\
+          curl.exe -L --retry 3 -o tessbundle\tessdata\ind.traineddata `
+            https://github.com/tesseract-ocr/tessdata_fast/raw/main/ind.traineddata
+
+      - name: Build PisahDokumen.exe
+        run: >
+          pyinstaller --noconfirm --onefile --windowed
+          --name PisahDokumen
+          --add-data "tessbundle;tesseract"
+          pisah_dokumen_gui.py
+
+      - name: Uji exe bisa dijalankan
+        shell: pwsh
+        run: |
+          if (!(Test-Path dist\PisahDokumen.exe)) { throw "exe tidak ditemukan" }
+          Get-Item dist\PisahDokumen.exe | Format-List Name, Length
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PisahDokumen-windows
+          path: dist/PisahDokumen.exe
+          if-no-files-found: error
