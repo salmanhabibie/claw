@@ -1,0 +1,601 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Deteksi &amp; Pisahkan Gambar Dokumen</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --card: #1e293b;
+      --border: #334155;
+      --text: #e2e8f0;
+      --muted: #94a3b8;
+      --accent: #38bdf8;
+      --danger: #f87171;
+      --success: #4ade80;
+      --warn: #fbbf24;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.5;
+      padding: 24px;
+    }
+    .wrap { max-width: 1100px; margin: 0 auto; }
+    h1 { font-size: 1.6rem; margin: 0 0 4px; }
+    .sub { color: var(--muted); margin: 0 0 20px; }
+    .sub a { color: var(--accent); }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 16px;
+      margin-bottom: 20px;
+    }
+    .card h2 { font-size: 1rem; margin: 0 0 12px; }
+    .drop {
+      border: 2px dashed var(--border);
+      border-radius: 10px;
+      padding: 28px 18px;
+      text-align: center;
+      color: var(--muted);
+      cursor: pointer;
+      transition: 0.15s;
+    }
+    .drop.drag { border-color: var(--accent); color: var(--accent); }
+    .drop input { display: none; }
+    .actions { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-top: 14px; }
+    button.primary {
+      background: var(--accent);
+      color: #03263a;
+      border: none;
+      border-radius: 8px;
+      padding: 12px 24px;
+      font-size: 1rem;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    button.primary:hover { filter: brightness(1.1); }
+    button.primary:disabled { opacity: 0.5; cursor: not-allowed; }
+    button.ghost {
+      background: transparent;
+      color: var(--accent);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 9px 16px;
+      cursor: pointer;
+      font-size: 0.9rem;
+    }
+    button.ghost:hover { border-color: var(--accent); }
+    button.ghost:disabled { opacity: 0.5; cursor: not-allowed; }
+    .hint { color: var(--muted); font-size: 0.85rem; }
+    .banner {
+      display: none;
+      border: 1px solid var(--warn);
+      color: var(--warn);
+      border-radius: 8px;
+      padding: 10px 14px;
+      margin-bottom: 16px;
+      font-size: 0.9rem;
+    }
+    .progress-wrap { display: none; margin-top: 14px; }
+    .progress-bar {
+      height: 10px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      overflow: hidden;
+    }
+    .progress-fill { height: 100%; width: 0%; background: var(--accent); transition: width 0.2s; }
+    .progress-text { color: var(--muted); font-size: 0.85rem; margin-top: 6px; }
+    .stats {
+      display: none;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 12px;
+      margin: 0 0 20px;
+    }
+    .stat {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 14px;
+      text-align: center;
+    }
+    .stat .num { font-size: 1.6rem; font-weight: 700; }
+    .stat .lbl { color: var(--muted); font-size: 0.82rem; }
+    .cat-section { margin-bottom: 20px; }
+    .cat-head {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-bottom: 10px;
+    }
+    .cat-head h2 { margin: 0; font-size: 1.05rem; }
+    .cat-head .count {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: 2px 10px;
+      font-size: 0.85rem;
+      color: var(--muted);
+    }
+    .thumb-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+      gap: 12px;
+    }
+    .thumb {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .thumb img {
+      width: 100%;
+      height: 140px;
+      object-fit: contain;
+      background: var(--bg);
+      border-radius: 8px;
+    }
+    .thumb .fname { font-size: 0.8rem; word-break: break-all; }
+    .thumb .meta { color: var(--muted); font-size: 0.75rem; }
+    .thumb select {
+      background: var(--bg);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 6px 8px;
+      font-size: 0.82rem;
+      width: 100%;
+    }
+    .chips { display: flex; flex-wrap: wrap; gap: 4px; }
+    .chip {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: 1px 8px;
+      font-size: 0.7rem;
+      color: var(--accent);
+    }
+    details.ocr { font-size: 0.75rem; color: var(--muted); }
+    details.ocr pre {
+      white-space: pre-wrap;
+      word-break: break-word;
+      max-height: 140px;
+      overflow: auto;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 6px;
+      margin: 6px 0 0;
+    }
+    .empty-cat { color: var(--muted); font-size: 0.85rem; padding: 8px 2px; }
+    #results { display: none; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>🪪 Deteksi &amp; Pisahkan Gambar Dokumen</h1>
+    <p class="sub">
+      Masukkan banyak gambar sekaligus — aplikasi membaca teksnya (OCR) lalu memisahkan otomatis menjadi
+      <b>Kartu Identitas (KTP/ID)</b>, <b>SIM / Driver License</b>, dan <b>Surat / Dokumen</b>.
+      Semua diproses di browser, tidak ada gambar yang diunggah ke server.
+      &nbsp;·&nbsp; <a href="index.html">← Pembanding &amp; Filter Email</a>
+    </p>
+
+    <div class="banner" id="banner-offline">
+      ⚠️ Mesin OCR (Tesseract.js) gagal dimuat — butuh koneksi internet saat pertama kali dipakai.
+      Deteksi hanya memakai bentuk/rasio gambar, hasilnya kurang akurat. Kamu tetap bisa memindahkan gambar
+      antar kategori secara manual lalu mengunduh ZIP-nya.
+    </div>
+
+    <div class="card">
+      <h2>1. Pilih Gambar</h2>
+      <label class="drop" id="drop">
+        📂 Klik atau seret gambar ke sini (boleh banyak sekaligus)<br />
+        <span class="hint">Format: JPG, PNG, WebP, BMP, GIF</span>
+        <input type="file" id="file-input" accept="image/*" multiple />
+      </label>
+      <div class="actions">
+        <button class="primary" id="btn-detect" disabled>🔍 Deteksi &amp; Pisahkan</button>
+        <button class="ghost" id="btn-reset" disabled>♻️ Reset</button>
+        <span class="hint" id="file-count">Belum ada gambar.</span>
+      </div>
+      <div class="progress-wrap" id="progress-wrap">
+        <div class="progress-bar"><div class="progress-fill" id="progress-fill"></div></div>
+        <div class="progress-text" id="progress-text"></div>
+      </div>
+    </div>
+
+    <div id="results">
+      <div class="stats" id="stats"></div>
+      <div class="card">
+        <div class="actions" style="margin-top: 0;">
+          <button class="primary" id="btn-zip-all">⬇️ Download Semua (ZIP, terpisah per folder)</button>
+          <span class="hint">Isi ZIP: satu subfolder per kategori. Salah kategori? Ubah lewat dropdown di tiap gambar.</span>
+        </div>
+      </div>
+      <div id="cat-sections"></div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+  <script>
+    "use strict";
+
+    /* ---------- Kategori ---------- */
+    const CATS = {
+      ktp:     { label: "🪪 Kartu Identitas (KTP / ID Card)", folder: "kartu-identitas" },
+      sim:     { label: "🚗 SIM / Driver License",            folder: "sim-driver-license" },
+      surat:   { label: "📄 Surat / Dokumen",                 folder: "surat-dokumen" },
+      lainnya: { label: "❓ Tidak Terdeteksi / Lainnya",      folder: "lainnya" },
+    };
+
+    /* Kata kunci per kategori: [regex, bobot] */
+    const KEYWORDS = {
+      sim: [
+        [/surat\s+izin\s+mengemudi/, 12],
+        [/driv(?:er'?s?|ing)\s+licen[cs]e/, 12],
+        [/operator'?s?\s+licen[cs]e/, 8],
+        [/\bd\.?m\.?v\.?\b/, 5],
+        [/motor\s+vehicle/, 5],
+        [/\bsim\b/, 4],
+        [/\bpolri\b/, 5],
+        [/kepolisian/, 4],
+        [/\bclass\b/, 2],
+        [/\bexpires?\b/, 2],
+      ],
+      ktp: [
+        [/kartu\s+tanda\s+penduduk/, 12],
+        [/kartu\s+identitas/, 8],
+        [/\bnik\b/, 9],
+        [/identity\s+card/, 8],
+        [/national\s+id(?:entity)?/, 6],
+        [/kewarganegaraan/, 7],
+        [/gol\.?\s*darah/, 6],
+        [/status\s+perkawinan/, 6],
+        [/seumur\s+hidup/, 6],
+        [/tempat\s*\/?\s*tgl\.?\s*lahir/, 5],
+        [/kel\w*\s*\/\s*desa/, 4],
+        [/provinsi/, 3],
+        [/kecamatan/, 3],
+        [/agama/, 3],
+        [/berlaku\s+hingga/, 3],
+      ],
+      surat: [
+        [/surat\s+(keterangan|pernyataan|kuasa|undangan|edaran|tugas|permohonan|peringatan|perjanjian)/, 10],
+        [/dengan\s+hormat/, 9],
+        [/to\s+whom\s+it\s+may\s+concern/, 9],
+        [/kepada\s*yth/, 8],
+        [/hormat\s+(kami|saya)/, 8],
+        [/perihal/, 7],
+        [/sincerely/, 7],
+        [/lampiran/, 6],
+        [/demikian\s+(surat|pernyataan)/, 6],
+        [/(?:best|kind)\s+regards|regards\s*,/, 6],
+        [/\byth\b/, 4],
+        [/\bdear\b/, 4],
+        [/tanda\s+tangan/, 3],
+      ],
+    };
+
+    function classify(text, width, height) {
+      const t = (text || "").toLowerCase().replace(/\s+/g, " ");
+      const words = t.split(" ").filter(Boolean).length;
+      const scores = { ktp: 0, sim: 0, surat: 0 };
+      const hits = { ktp: [], sim: [], surat: [] };
+
+      for (const cat of Object.keys(KEYWORDS)) {
+        for (const [re, w] of KEYWORDS[cat]) {
+          const m = t.match(re);
+          if (m) { scores[cat] += w; hits[cat].push(m[0].trim()); }
+        }
+      }
+
+      // Heuristik bentuk: surat biasanya portrait & banyak kata,
+      // kartu biasanya landscape dengan rasio ± kartu ATM.
+      if (width && height) {
+        const ratio = width / height;
+        if (height > width * 1.1 && words >= 40) scores.surat += 5;
+        if (ratio >= 1.3 && ratio <= 1.85) { scores.ktp += 1; scores.sim += 1; }
+      }
+
+      let best = "lainnya", bestScore = 0;
+      for (const cat of ["sim", "ktp", "surat"]) {
+        if (scores[cat] > bestScore) { best = cat; bestScore = scores[cat]; }
+      }
+      if (bestScore < 5) best = "lainnya";
+      return { cat: best, score: bestScore, hits: best === "lainnya" ? [] : hits[best] };
+    }
+
+    /* ---------- Pembuat ZIP (tanpa kompresi, tanpa library) ---------- */
+    const CRC_TABLE = (() => {
+      const t = new Uint32Array(256);
+      for (let n = 0; n < 256; n++) {
+        let c = n;
+        for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+        t[n] = c >>> 0;
+      }
+      return t;
+    })();
+
+    function crc32(u8) {
+      let c = 0xffffffff;
+      for (let i = 0; i < u8.length; i++) c = CRC_TABLE[(c ^ u8[i]) & 0xff] ^ (c >>> 8);
+      return (c ^ 0xffffffff) >>> 0;
+    }
+
+    function buildZip(entries) {
+      // entries: [{ name: "folder/file.jpg", data: Uint8Array }]
+      const enc = new TextEncoder();
+      const now = new Date();
+      const dosTime = (now.getHours() << 11) | (now.getMinutes() << 5) | (now.getSeconds() >> 1);
+      const dosDate = ((now.getFullYear() - 1980) << 9) | ((now.getMonth() + 1) << 5) | now.getDate();
+      const localParts = [], centralParts = [];
+      let offset = 0;
+
+      for (const e of entries) {
+        const nameU8 = enc.encode(e.name);
+        const crc = crc32(e.data);
+        const local = new DataView(new ArrayBuffer(30));
+        local.setUint32(0, 0x04034b50, true);
+        local.setUint16(4, 20, true);          // versi minimal
+        local.setUint16(6, 0x0800, true);      // flag: nama file UTF-8
+        local.setUint16(8, 0, true);           // metode: store
+        local.setUint16(10, dosTime, true);
+        local.setUint16(12, dosDate, true);
+        local.setUint32(14, crc, true);
+        local.setUint32(18, e.data.length, true);
+        local.setUint32(22, e.data.length, true);
+        local.setUint16(26, nameU8.length, true);
+        local.setUint16(28, 0, true);
+        localParts.push(new Uint8Array(local.buffer), nameU8, e.data);
+
+        const central = new DataView(new ArrayBuffer(46));
+        central.setUint32(0, 0x02014b50, true);
+        central.setUint16(4, 20, true);
+        central.setUint16(6, 20, true);
+        central.setUint16(8, 0x0800, true);
+        central.setUint16(10, 0, true);
+        central.setUint16(12, dosTime, true);
+        central.setUint16(14, dosDate, true);
+        central.setUint32(16, crc, true);
+        central.setUint32(20, e.data.length, true);
+        central.setUint32(24, e.data.length, true);
+        central.setUint16(28, nameU8.length, true);
+        central.setUint32(42, offset, true);
+        centralParts.push(new Uint8Array(central.buffer), nameU8);
+        offset += 30 + nameU8.length + e.data.length;
+      }
+
+      const centralSize = centralParts.reduce((s, p) => s + p.length, 0);
+      const eocd = new DataView(new ArrayBuffer(22));
+      eocd.setUint32(0, 0x06054b50, true);
+      eocd.setUint16(8, entries.length, true);
+      eocd.setUint16(10, entries.length, true);
+      eocd.setUint32(12, centralSize, true);
+      eocd.setUint32(16, offset, true);
+      return new Blob([...localParts, ...centralParts, new Uint8Array(eocd.buffer)], { type: "application/zip" });
+    }
+
+    /* ---------- State & elemen ---------- */
+    const items = [];   // {id, file, url, name, cat, score, hits, text, w, h, done}
+    let nextId = 1;
+    let worker = null;
+    let ocrAvailable = typeof Tesseract !== "undefined";
+    let running = false;
+
+    const $ = (id) => document.getElementById(id);
+    const dropEl = $("drop"), fileInput = $("file-input");
+    const btnDetect = $("btn-detect"), btnReset = $("btn-reset");
+    const fileCount = $("file-count");
+    const progressWrap = $("progress-wrap"), progressFill = $("progress-fill"), progressText = $("progress-text");
+    const resultsEl = $("results"), statsEl = $("stats"), catSectionsEl = $("cat-sections");
+
+    if (!ocrAvailable) $("banner-offline").style.display = "block";
+
+    /* ---------- Input file ---------- */
+    dropEl.addEventListener("dragover", (e) => { e.preventDefault(); dropEl.classList.add("drag"); });
+    dropEl.addEventListener("dragleave", () => dropEl.classList.remove("drag"));
+    dropEl.addEventListener("drop", (e) => {
+      e.preventDefault();
+      dropEl.classList.remove("drag");
+      addFiles(e.dataTransfer.files);
+    });
+    fileInput.addEventListener("change", () => { addFiles(fileInput.files); fileInput.value = ""; });
+
+    function addFiles(fileList) {
+      for (const f of fileList) {
+        if (!f.type.startsWith("image/")) continue;
+        items.push({
+          id: nextId++, file: f, url: URL.createObjectURL(f), name: f.name,
+          cat: null, score: 0, hits: [], text: "", w: 0, h: 0, done: false,
+        });
+      }
+      updateControls();
+    }
+
+    function updateControls() {
+      fileCount.textContent = items.length
+        ? `${items.length} gambar siap diproses.` : "Belum ada gambar.";
+      btnDetect.disabled = running || !items.some((it) => !it.done);
+      btnReset.disabled = running || items.length === 0;
+    }
+
+    btnReset.addEventListener("click", () => {
+      items.forEach((it) => URL.revokeObjectURL(it.url));
+      items.length = 0;
+      resultsEl.style.display = "none";
+      statsEl.style.display = "none";
+      progressWrap.style.display = "none";
+      catSectionsEl.innerHTML = "";
+      updateControls();
+    });
+
+    /* ---------- Proses deteksi ---------- */
+    btnDetect.addEventListener("click", async () => {
+      running = true;
+      updateControls();
+      progressWrap.style.display = "block";
+
+      if (ocrAvailable && !worker) {
+        setProgress(0, "Memuat mesin OCR (sekali saja, ± beberapa MB)…");
+        try {
+          worker = await Tesseract.createWorker("ind+eng");
+        } catch (err) {
+          console.error("OCR gagal dimuat:", err);
+          ocrAvailable = false;
+          $("banner-offline").style.display = "block";
+        }
+      }
+
+      const todo = items.filter((it) => !it.done);
+      for (let i = 0; i < todo.length; i++) {
+        const it = todo[i];
+        setProgress(i / todo.length, `Memproses ${i + 1}/${todo.length}: ${it.name}`);
+        try {
+          const { canvas, w, h } = await loadToCanvas(it.file);
+          it.w = w; it.h = h;
+          if (ocrAvailable && worker) {
+            const { data } = await worker.recognize(canvas);
+            it.text = data.text || "";
+          }
+        } catch (err) {
+          console.error("Gagal memproses", it.name, err);
+        }
+        const res = classify(it.text, it.w, it.h);
+        it.cat = res.cat; it.score = res.score; it.hits = res.hits;
+        it.done = true;
+        render();
+      }
+
+      setProgress(1, `Selesai — ${todo.length} gambar diproses.`);
+      running = false;
+      updateControls();
+      render();
+    });
+
+    function setProgress(frac, msg) {
+      progressFill.style.width = `${Math.round(frac * 100)}%`;
+      progressText.textContent = msg;
+    }
+
+    function loadToCanvas(file) {
+      return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => {
+          const MAX = 1600;
+          const scale = Math.min(1, MAX / Math.max(img.naturalWidth, img.naturalHeight));
+          const canvas = document.createElement("canvas");
+          canvas.width = Math.round(img.naturalWidth * scale);
+          canvas.height = Math.round(img.naturalHeight * scale);
+          canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
+          resolve({ canvas, w: img.naturalWidth, h: img.naturalHeight });
+          URL.revokeObjectURL(img.src);
+        };
+        img.onerror = reject;
+        img.src = URL.createObjectURL(file);
+      });
+    }
+
+    /* ---------- Render hasil ---------- */
+    function render() {
+      const doneItems = items.filter((it) => it.done);
+      if (!doneItems.length) return;
+      resultsEl.style.display = "block";
+      statsEl.style.display = "grid";
+
+      statsEl.innerHTML = Object.entries(CATS).map(([key, c]) => {
+        const n = doneItems.filter((it) => it.cat === key).length;
+        return `<div class="stat"><div class="num">${n}</div><div class="lbl">${c.label}</div></div>`;
+      }).join("");
+
+      catSectionsEl.innerHTML = "";
+      for (const [key, c] of Object.entries(CATS)) {
+        const catItems = doneItems.filter((it) => it.cat === key);
+        const section = document.createElement("div");
+        section.className = "cat-section card";
+        section.innerHTML = `
+          <div class="cat-head">
+            <h2>${c.label}</h2>
+            <span class="count">${catItems.length} gambar</span>
+            <button class="ghost" data-zip-cat="${key}" ${catItems.length ? "" : "disabled"}>⬇️ ZIP kategori ini</button>
+          </div>`;
+        const grid = document.createElement("div");
+        grid.className = "thumb-grid";
+        if (!catItems.length) {
+          grid.innerHTML = `<div class="empty-cat">Tidak ada gambar di kategori ini.</div>`;
+        }
+        for (const it of catItems) grid.appendChild(thumbEl(it));
+        section.appendChild(grid);
+        catSectionsEl.appendChild(section);
+      }
+
+      catSectionsEl.querySelectorAll("[data-zip-cat]").forEach((btn) => {
+        btn.addEventListener("click", () => downloadZip(btn.dataset.zipCat));
+      });
+    }
+
+    function thumbEl(it) {
+      const div = document.createElement("div");
+      div.className = "thumb";
+      const opts = Object.entries(CATS)
+        .map(([key, c]) => `<option value="${key}" ${key === it.cat ? "selected" : ""}>${c.label}</option>`)
+        .join("");
+      div.innerHTML = `
+        <img src="${it.url}" alt="" loading="lazy" />
+        <div class="fname">${escapeHtml(it.name)}</div>
+        <div class="meta">${it.w}×${it.h}px · skor ${it.score}</div>
+        ${it.hits.length ? `<div class="chips">${it.hits.slice(0, 4).map((h) => `<span class="chip">${escapeHtml(h)}</span>`).join("")}</div>` : ""}
+        ${it.text.trim() ? `<details class="ocr"><summary>Teks hasil OCR</summary><pre>${escapeHtml(it.text.trim())}</pre></details>` : ""}
+        <select data-id="${it.id}">${opts}</select>`;
+      div.querySelector("select").addEventListener("change", (e) => {
+        it.cat = e.target.value;
+        render();
+      });
+      return div;
+    }
+
+    function escapeHtml(s) {
+      return s.replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
+    }
+
+    /* ---------- Download ZIP ---------- */
+    async function downloadZip(onlyCat) {
+      const pick = items.filter((it) => it.done && (!onlyCat || it.cat === onlyCat));
+      if (!pick.length) return;
+      const used = new Set();
+      const entries = [];
+      for (const it of pick) {
+        const folder = CATS[it.cat].folder;
+        let name = `${folder}/${it.name}`;
+        let n = 1;
+        while (used.has(name)) {
+          const dot = it.name.lastIndexOf(".");
+          const base = dot > 0 ? it.name.slice(0, dot) : it.name;
+          const ext = dot > 0 ? it.name.slice(dot) : "";
+          name = `${folder}/${base}-${++n}${ext}`;
+        }
+        used.add(name);
+        entries.push({ name, data: new Uint8Array(await it.file.arrayBuffer()) });
+      }
+      const blob = buildZip(entries);
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = onlyCat ? `${CATS[onlyCat].folder}.zip` : "dokumen-terpisah.zip";
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+    }
+
+    $("btn-zip-all").addEventListener("click", () => downloadZip(null));
+  </script>
+</body>
+</html>

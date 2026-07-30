@@ -1,13 +1,14 @@
-# claw — Pembanding & Filter Email TXT
+# claw — Kumpulan Aplikasi Kecil
 
-Aplikasi sederhana untuk file `.txt`, dengan dua fitur:
+Kumpulan aplikasi sederhana, masing-masing ada versi web dan CLI:
 
-1. **Bandingkan File** — membandingkan dua file (File 1 vs File 2) dan menghitung
+1. **Bandingkan File** — membandingkan dua file `.txt` (File 1 vs File 2) dan menghitung
    **berapa baris yang hilang**. Pencocokan berdasarkan isi baris (urutan acak aman).
 2. **Filter Email** — kelompokkan & hitung email per penyedia
    (gmail.com, hotmail.com, comcast.net, yahoo.com, dll), lalu filter / ambil yang dibutuhkan.
-
-Tersedia dua versi: aplikasi web dan CLI.
+3. **Deteksi & Pisahkan Gambar Dokumen** — deteksi otomatis gambar
+   **kartu identitas (KTP/ID)**, **SIM / driver license**, dan **surat/dokumen**,
+   lalu pisahkan per kategori. [Lihat caranya di bawah.](#4-deteksi--pisahkan-gambar-dokumen)
 
 ## 1. Aplikasi Web (paling mudah)
 
@@ -90,6 +91,66 @@ python3 filter_email.py emails.txt --unique
 | `--exclude DOMAIN…` | Sembunyikan email dari domain tsb         |
 | `-o, --output FILE` | Simpan hasil ke file                      |
 | `--unique`        | Hapus email duplikat                        |
+
+## 4. Deteksi & Pisahkan Gambar Dokumen
+
+Deteksi otomatis isi gambar dan pisahkan menjadi 4 kelompok:
+
+| Kategori             | Contoh                                        | Folder hasil         |
+|----------------------|-----------------------------------------------|----------------------|
+| 🪪 Kartu Identitas   | KTP, ID card                                  | `kartu-identitas/`   |
+| 🚗 SIM               | SIM Indonesia, driver license luar negeri     | `sim-driver-license/`|
+| 📄 Surat / Dokumen   | surat resmi, surat keterangan, dokumen teks   | `surat-dokumen/`     |
+| ❓ Lainnya           | gambar yang tidak terdeteksi                  | `lainnya/`           |
+
+Deteksi memakai **OCR** (baca teks di gambar) + kata kunci
+(mis. "KARTU TANDA PENDUDUK", "NIK", "SURAT IZIN MENGEMUDI", "DRIVER LICENSE",
+"Kepada Yth", "Dengan hormat") ditambah heuristik bentuk gambar
+(kartu = landscape rasio kartu, surat = portrait banyak teks).
+
+### Versi Web
+
+Buka [`deteksi_dokumen.html`](deteksi_dokumen.html) di browser:
+
+1. Klik/seret gambar (boleh banyak sekaligus) → klik **🔍 Deteksi & Pisahkan**.
+2. Hasil tampil terkelompok per kategori, lengkap dengan kata kunci yang
+   ditemukan dan teks hasil OCR.
+3. Salah kategori? Pindahkan lewat dropdown di tiap gambar.
+4. Unduh hasil: **ZIP per kategori**, atau **ZIP semua** (berisi subfolder per kategori).
+
+Semua diproses **di browser** — gambar tidak diunggah ke server mana pun.
+Butuh internet hanya saat pertama kali (mengunduh mesin OCR Tesseract.js);
+jika offline, deteksi memakai heuristik bentuk saja dan kategori bisa diatur manual.
+
+### Versi CLI (Python)
+
+Butuh Pillow + pytesseract + program tesseract:
+
+```bash
+pip install pillow pytesseract
+# Ubuntu/Debian:
+sudo apt install tesseract-ocr tesseract-ocr-ind
+```
+
+Pemakaian:
+
+```bash
+# Salin gambar ke subfolder per kategori (di folder yang sama)
+python3 pisah_dokumen.py folder_gambar/
+
+# Simpan hasil ke folder lain, dan pindahkan (bukan salin)
+python3 pisah_dokumen.py folder_gambar/ -o hasil/ --move
+
+# Cek dulu hasil deteksinya tanpa memindahkan apa pun
+python3 pisah_dokumen.py folder_gambar/ --dry-run
+```
+
+| Opsi              | Keterangan                                        |
+|-------------------|---------------------------------------------------|
+| `-o, --output DIR`| Folder tujuan (default: folder input)             |
+| `--move`          | Pindahkan file (default: salin)                   |
+| `--lang LANG`     | Bahasa OCR tesseract (default: `ind+eng`)         |
+| `--dry-run`       | Hanya tampilkan hasil deteksi, tidak menyentuh file |
 
 ## Catatan
 
