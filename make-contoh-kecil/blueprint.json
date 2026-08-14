@@ -1,0 +1,45 @@
+{
+    "name": "Contoh Kecil - App Sapaan (Webhook)",
+    "metadata": {
+        "instant": true,
+        "version": 1
+    },
+    "flow": [
+        {
+            "id": 1,
+            "module": "gateway:CustomWebHook",
+            "version": 1,
+            "parameters": {
+                "hook": 2797986,
+                "maxResults": 1
+            },
+            "metadata": {
+                "designer": {
+                    "x": 0,
+                    "y": 0
+                }
+            }
+        },
+        {
+            "id": 2,
+            "module": "gateway:WebhookRespond",
+            "version": 1,
+            "mapper": {
+                "status": "200",
+                "body": "{\"pesan\": \"Halo, {{ifempty(1.nama; \"teman\")}}!\", \"dari\": \"Contoh kecil app Make\", \"waktu\": \"{{now}}\"}",
+                "headers": [
+                    {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                    }
+                ]
+            },
+            "metadata": {
+                "designer": {
+                    "x": 300,
+                    "y": 0
+                }
+            }
+        }
+    ]
+}

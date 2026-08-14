@@ -91,6 +91,11 @@ python3 filter_email.py emails.txt --unique
 | `-o, --output FILE` | Simpan hasil ke file                      |
 | `--unique`        | Hapus email duplikat                        |
 
+## 4. Contoh Kecil App Make.com
+
+Contoh app otomasi sederhana di Make.com (webhook → balasan JSON sapaan).
+Lihat [`make-contoh-kecil/`](make-contoh-kecil/) untuk blueprint dan panduannya.
+
 ## Catatan
 
 Perbandingan dilakukan per-baris dan memperhitungkan baris duplikat, jadi kalau
