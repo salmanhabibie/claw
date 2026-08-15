@@ -52,6 +52,11 @@ Untuk memakainya di akun/team lain:
    jadi harus diganti).
 3. Simpan lalu aktifkan scenario (tombol **ON**).
 
+## Contoh lanjutan: Home Assistant
+
+Lihat [`home-assistant.md`](home-assistant.md) — kejadian di rumah (pintu dibuka, dll)
+dikirim Home Assistant ke webhook Make, lalu diteruskan sebagai notifikasi push ke HP.
+
 ## Ide pengembangan
 
 - Tambah modul (Gmail, Google Sheets, Telegram, dll) di antara webhook dan response.
