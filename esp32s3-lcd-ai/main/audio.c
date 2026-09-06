@@ -10,6 +10,7 @@
 
 static const char *TAG = "audio";
 static i2s_chan_handle_t s_tx;
+static int s_rate;              /* live TX sample rate (Hz) */
 static i2s_chan_handle_t s_rx;
 
 /* ElevenLabs is asked for pcm_24000, so the I2S output clock runs at 24 kHz.
@@ -90,9 +91,35 @@ esp_err_t audio_init(void)
         return err;
     }
     err = i2s_channel_enable(s_tx);
+    s_rate = AUDIO_SAMPLE_RATE;
     ESP_LOGI(TAG, "I2S out BCK=%d WS=%d DOUT=%d @%dHz (32-bit mono/left): %s",
              BSP_SPK_BCK, BSP_SPK_LRCK, BSP_SPK_DIN, AUDIO_SAMPLE_RATE,
              esp_err_to_name(err));
+    return err;
+}
+
+esp_err_t audio_set_sample_rate(int hz)
+{
+    if (s_tx == NULL || hz <= 0) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (hz == s_rate) {
+        return ESP_OK;              /* already there; don't glitch the channel */
+    }
+    const i2s_std_clk_config_t clk = {
+        .sample_rate_hz = (uint32_t)hz,
+        .clk_src = I2S_CLK_SRC_DEFAULT,
+        .mclk_multiple = I2S_MCLK_MULTIPLE_256,
+    };
+    esp_err_t err = i2s_channel_disable(s_tx);
+    if (err == ESP_OK) err = i2s_channel_reconfig_std_clock(s_tx, &clk);
+    if (err == ESP_OK) err = i2s_channel_enable(s_tx);
+    if (err == ESP_OK) {
+        s_rate = hz;
+        ESP_LOGI(TAG, "I2S out rate -> %d Hz", hz);
+    } else {
+        ESP_LOGW(TAG, "sample rate %d failed: %s", hz, esp_err_to_name(err));
+    }
     return err;
 }
 
@@ -104,7 +131,8 @@ void audio_play_test_tone(void)
     const int freq = 880;       /* Hz */
     const int dur_ms = 250;
     const int amp = 12000;      /* clearly audible, not startling */
-    const int total = AUDIO_SAMPLE_RATE * dur_ms / 1000;
+    const int rate = (s_rate > 0) ? s_rate : AUDIO_SAMPLE_RATE;
+    const int total = rate * dur_ms / 1000;
 
     ESP_LOGI(TAG, "playing %dHz test tone for %dms", freq, dur_ms);
     enum { CH = 256 };
@@ -113,7 +141,7 @@ void audio_play_test_tone(void)
     while (i < total) {
         int n = (total - i < CH) ? (total - i) : CH;
         for (int j = 0; j < n; j++) {
-            float t = (float)(i + j) / AUDIO_SAMPLE_RATE;
+            float t = (float)(i + j) / rate;
             buf[j] = (int16_t)(amp * sinf(2.0f * (float)M_PI * freq * t));
         }
         audio_play_mono16((const uint8_t *)buf, (size_t)n * 2);
@@ -128,13 +156,14 @@ void audio_play_chime(void)
     const int amp = 12000;
     enum { CH = 256 };
     int16_t buf[CH];
+    const int rate = (s_rate > 0) ? s_rate : AUDIO_SAMPLE_RATE;
     for (int k = 0; k < 2; k++) {
-        const int total = AUDIO_SAMPLE_RATE * dur_ms / 1000;
+        const int total = rate * dur_ms / 1000;
         int i = 0;
         while (i < total) {
             int n = (total - i < CH) ? (total - i) : CH;
             for (int j = 0; j < n; j++) {
-                float t = (float)(i + j) / AUDIO_SAMPLE_RATE;
+                float t = (float)(i + j) / rate;
                 buf[j] = (int16_t)(amp * sinf(2.0f * (float)M_PI * notes[k] * t));
             }
             audio_play_mono16((const uint8_t *)buf, (size_t)n * 2);

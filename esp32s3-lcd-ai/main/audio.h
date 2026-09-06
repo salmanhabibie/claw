@@ -12,6 +12,10 @@ esp_err_t audio_init(void);
  * to both stereo channels. Blocks until the data has been queued to I2S. */
 void audio_play_mono16(const uint8_t *data, size_t len);
 
+/* Switch the speaker's sample rate at runtime (the TTS provider may hand back
+ * a rate other than the default). No-op when already at `hz`. */
+esp_err_t audio_set_sample_rate(int hz);
+
 /* Set/get output volume as 0..100 percent (100 == the board's loud, slightly
  * clipping max). Applied to subsequent audio_play_mono16() calls. */
 void audio_set_volume(int percent);
