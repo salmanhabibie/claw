@@ -3,6 +3,7 @@
 
 #include <math.h>
 #include <stdbool.h>
+#include <string.h>
 
 #include "driver/i2s_std.h"
 #include "freertos/FreeRTOS.h"
@@ -44,6 +45,10 @@ esp_err_t audio_init(void)
     /* Deeper DMA queue (~160 ms) so playback rides out scheduling hiccups. */
     chan_cfg.dma_desc_num = 8;
     chan_cfg.dma_frame_num = 480;
+    /* CRITICAL: without auto_clear, a TX underrun makes the DMA loop the last
+     * ~20 ms of whatever played - heard as endless rapid beeping after every
+     * clip. With it, an underrun plays silence. */
+    chan_cfg.auto_clear = true;
     esp_err_t err = i2s_new_channel(&chan_cfg, &s_tx, NULL);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "i2s_new_channel: %s", esp_err_to_name(err));
@@ -356,5 +361,13 @@ void audio_play_mono16(const uint8_t *data, size_t len)
         size_t written = 0;
         i2s_channel_write(s_tx, out, n * sizeof(int32_t), &written, portMAX_DELAY);
         i += n;
+    }
+
+    /* Push a short silent tail so the clip's real ending leaves the DMA chain
+     * right away (belt and braces alongside auto_clear above). */
+    memset(out, 0, sizeof(out));
+    for (int k = 0; k < 2; k++) {
+        size_t written = 0;
+        i2s_channel_write(s_tx, out, sizeof(out), &written, portMAX_DELAY);
     }
 }
