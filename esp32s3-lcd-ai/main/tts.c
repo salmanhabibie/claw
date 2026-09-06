@@ -13,6 +13,15 @@
 
 static const char *TAG = "tts";
 
+/* Reason the last tts_say() produced no audio, shown on screen so a silent
+ * Wanda explains itself without needing a serial monitor. */
+static char s_last_err[64];
+
+const char *tts_last_error(void)
+{
+    return s_last_err;
+}
+
 /* ElevenLabs streams raw 16-bit mono PCM (output_format=pcm_24000). We collect
  * the WHOLE clip into a PSRAM buffer first, then play it in one smooth pass.
  * Playing chunks straight from the HTTP callback underruns the I2S DMA whenever
@@ -50,11 +59,14 @@ static esp_err_t http_event(esp_http_client_event_t *evt)
     return ESP_OK;
 }
 
-void tts_say(const char *text)
+bool tts_say(const char *text)
 {
+    s_last_err[0] = '\0';
+
     if (strlen(CONFIG_ELEVENLABS_API_KEY) == 0) {
         ESP_LOGE(TAG, "no ElevenLabs API key configured");
-        return;
+        snprintf(s_last_err, sizeof(s_last_err), "API key ElevenLabs kosong");
+        return false;
     }
 
     cJSON *root = cJSON_CreateObject();
@@ -63,7 +75,8 @@ void tts_say(const char *text)
     char *body = cJSON_PrintUnformatted(root);
     cJSON_Delete(root);
     if (body == NULL) {
-        return;
+        snprintf(s_last_err, sizeof(s_last_err), "Memori penuh");
+        return false;
     }
 
     char url[256];
@@ -108,17 +121,28 @@ void tts_say(const char *text)
     }
     free(body);
 
+    bool spoke = false;
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "TTS request failed after retries: %s", esp_err_to_name(err));
+        snprintf(s_last_err, sizeof(s_last_err), "Suara: jaringan gagal");
+    } else if (status == 401 || status == 403) {
+        ESP_LOGW(TAG, "TTS HTTP %d (API key rejected)", status);
+        snprintf(s_last_err, sizeof(s_last_err),
+                 "Suara: API key ditolak (%d)", status);
     } else if (status != 200) {
         ESP_LOGW(TAG, "TTS HTTP %d (check API key / voice ID)", status);
+        snprintf(s_last_err, sizeof(s_last_err),
+                 "Suara: voice ID ditolak (%d)", status);
     } else if (st.len < 2) {
         ESP_LOGW(TAG, "got 0 audio bytes - check voice ID / output_format");
+        snprintf(s_last_err, sizeof(s_last_err), "Suara: audio kosong");
     } else {
+        spoke = true;
         ESP_LOGI(TAG, "TTS got HTTP 200, %u PCM bytes (%.1f s); playing",
                  (unsigned)st.len, st.len / 2.0f / 24000.0f);
         /* One smooth pass from the complete buffer — no network-stall gaps. */
         audio_play_mono16(st.buf, st.len & ~(size_t)1);
     }
     free(st.buf);
+    return spoke;
 }

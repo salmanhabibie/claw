@@ -241,7 +241,13 @@ static void voice_task(void *arg)
         }
         chat_ui_set_status("Tes suara...");
         chat_ui_set_state(UI_SPEAKING);
-        tts_say(greet);
+        if (!tts_say(greet)) {
+            /* Silent Wanda explains herself: show why, and keep it up long
+             * enough to read before the idle screen takes over. */
+            chat_ui_set_status(tts_last_error());
+            chat_ui_set_response(tts_last_error());
+            vTaskDelay(pdMS_TO_TICKS(6000));
+        }
     }
     chat_ui_set_status("Tap untuk bicara");
     chat_ui_set_state(UI_IDLE);
@@ -315,7 +321,9 @@ static void voice_task(void *arg)
 
             chat_ui_set_status("Berbicara...");
             chat_ui_set_state(UI_SPEAKING);
-            tts_say(reply);
+            if (!tts_say(reply)) {
+                chat_ui_set_status(tts_last_error());
+            }
             free(reply);
 
             /* Brief settle so the mic doesn't catch the speaker's tail. */
