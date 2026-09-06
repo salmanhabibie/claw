@@ -128,14 +128,18 @@ static int tts_request(const char *voice, const char *fmt, const char *body,
 }
 
 /* Record why a request was refused, preferring the API's own explanation
- * (detail.message) over a bare status code. */
-static void note_error(int status, const tts_state_t *st)
+ * (detail.message) over a bare status code. Returns true when the cause is
+ * authentication, which every other voice/format combination hits alike -
+ * ElevenLabs reports a bad key as 400, not 401, so the status alone can't
+ * distinguish "wrong key" from "wrong voice". */
+static bool note_error(int status, const tts_state_t *st)
 {
     if (status == 0) {
         snprintf(s_last_err, sizeof(s_last_err), "Suara: jaringan gagal");
-        return;
+        return false;
     }
 
+    bool auth = (status == 401 || status == 403);
     char detail[140] = "";
     if (st->buf != NULL && st->len > 0) {
         size_t n = (st->len < 511) ? st->len : 511;
@@ -153,6 +157,11 @@ static void note_error(int status, const tts_state_t *st)
                     if (msg == NULL) {
                         msg = cJSON_GetStringValue(cJSON_GetObjectItem(d, "status"));
                     }
+                    const char *type = cJSON_GetStringValue(
+                        cJSON_GetObjectItem(d, "type"));
+                    if (type != NULL && strcmp(type, "authentication_error") == 0) {
+                        auth = true;
+                    }
                 } else if (cJSON_IsString(d)) {
                     msg = d->valuestring;
                 }
@@ -164,12 +173,12 @@ static void note_error(int status, const tts_state_t *st)
         }
     }
 
-    if (status == 401 || status == 403) {
-        snprintf(s_last_err, sizeof(s_last_err),
-                 "API key ditolak (%d): %s", status, detail);
+    if (auth) {
+        snprintf(s_last_err, sizeof(s_last_err), "API key salah: %s", detail);
     } else {
         snprintf(s_last_err, sizeof(s_last_err), "Suara (%d): %s", status, detail);
     }
+    return auth;
 }
 
 /* Play `st` as the clip for FORMATS[fi] and remember the winning combination. */
@@ -238,12 +247,12 @@ bool tts_say(const char *text)
                 spoke = true;
                 break;
             }
-            note_error(status, &st);
+            bool auth = note_error(status, &st);
             ESP_LOGW(TAG, "voice '%s' fmt %s -> %d: %s",
                      voices[vi], FORMATS[fi].name, status, s_last_err);
             /* A rejected key fails identically for every combination, and a
              * dead network won't heal within one search - stop early. */
-            if (status == 401 || status == 403 || status == 0) {
+            if (auth || status == 0) {
                 vi = nvoices;
                 break;
             }
