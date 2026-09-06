@@ -3,7 +3,6 @@
 
 #include <math.h>
 #include <stdbool.h>
-#include <string.h>
 
 #include "driver/i2s_std.h"
 #include "freertos/FreeRTOS.h"
@@ -362,12 +361,7 @@ void audio_play_mono16(const uint8_t *data, size_t len)
         i2s_channel_write(s_tx, out, n * sizeof(int32_t), &written, portMAX_DELAY);
         i += n;
     }
-
-    /* Push a short silent tail so the clip's real ending leaves the DMA chain
-     * right away (belt and braces alongside auto_clear above). */
-    memset(out, 0, sizeof(out));
-    for (int k = 0; k < 2; k++) {
-        size_t written = 0;
-        i2s_channel_write(s_tx, out, sizeof(out), &written, portMAX_DELAY);
-    }
+    /* No silent tail here: callers play clips in small chunks through this
+     * function, so padding each call punches gaps into the audio. auto_clear
+     * (set at init) already guarantees an underrun plays silence. */
 }
