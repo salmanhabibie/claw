@@ -15,7 +15,7 @@ static const char *TAG = "tts";
 
 /* Reason the last tts_say() produced no audio, shown on screen so a silent
  * Wanda explains itself without needing a serial monitor. */
-static char s_last_err[64];
+static char s_last_err[200];
 
 const char *tts_last_error(void)
 {
@@ -37,12 +37,13 @@ static esp_err_t http_event(esp_http_client_event_t *evt)
     if (evt->event_id != HTTP_EVENT_ON_DATA) {
         return ESP_OK;
     }
-    /* Only collect a 200 response; otherwise the body is a JSON error, not audio. */
-    if (esp_http_client_get_status_code(evt->client) != 200) {
+    tts_state_t *st = (tts_state_t *)evt->user_data;
+    /* Collect the body whatever the status: on 200 it is audio, otherwise it
+     * is the JSON error saying WHY the request was refused - which is exactly
+     * what we want to show. Cap the error case; those bodies are tiny. */
+    if (esp_http_client_get_status_code(evt->client) != 200 && st->len > 2048) {
         return ESP_OK;
     }
-
-    tts_state_t *st = (tts_state_t *)evt->user_data;
     if (st->len + evt->data_len > st->cap) {
         size_t ncap = st->cap ? st->cap : 65536;
         while (ncap < st->len + evt->data_len) ncap *= 2;
@@ -130,9 +131,37 @@ bool tts_say(const char *text)
         snprintf(s_last_err, sizeof(s_last_err),
                  "Suara: API key ditolak (%d)", status);
     } else if (status != 200) {
-        ESP_LOGW(TAG, "TTS HTTP %d (check API key / voice ID)", status);
-        snprintf(s_last_err, sizeof(s_last_err),
-                 "Suara: voice ID ditolak (%d)", status);
+        /* Report the API's own explanation rather than a bare status code. */
+        char detail[140] = "";
+        if (st.buf != NULL && st.len > 0) {
+            size_t n = (st.len < 511) ? st.len : 511;
+            char *raw = malloc(n + 1);
+            if (raw != NULL) {
+                memcpy(raw, st.buf, n);
+                raw[n] = '\0';
+                ESP_LOGW(TAG, "TTS error body: %s", raw);
+                cJSON *e = cJSON_Parse(raw);
+                if (e != NULL) {
+                    cJSON *d = cJSON_GetObjectItem(e, "detail");
+                    const char *msg = NULL;
+                    if (cJSON_IsObject(d)) {
+                        msg = cJSON_GetStringValue(cJSON_GetObjectItem(d, "message"));
+                        if (msg == NULL) {
+                            msg = cJSON_GetStringValue(cJSON_GetObjectItem(d, "status"));
+                        }
+                    } else if (cJSON_IsString(d)) {
+                        msg = d->valuestring;
+                    }
+                    if (msg != NULL) snprintf(detail, sizeof(detail), "%s", msg);
+                    cJSON_Delete(e);
+                }
+                if (detail[0] == '\0') snprintf(detail, sizeof(detail), "%s", raw);
+                free(raw);
+            }
+        }
+        ESP_LOGW(TAG, "TTS HTTP %d for voice '%s' model '%s'", status,
+                 CONFIG_ELEVENLABS_VOICE_ID, CONFIG_ELEVENLABS_MODEL);
+        snprintf(s_last_err, sizeof(s_last_err), "Suara (%d): %s", status, detail);
     } else if (st.len < 2) {
         ESP_LOGW(TAG, "got 0 audio bytes - check voice ID / output_format");
         snprintf(s_last_err, sizeof(s_last_err), "Suara: audio kosong");
