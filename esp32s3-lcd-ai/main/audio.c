@@ -102,8 +102,8 @@ void audio_play_test_tone(void)
      * works at boot. (It was 1.5 s at high volume, which read as an "error
      * beep" - especially if the device ever reboots repeatedly.) */
     const int freq = 880;       /* Hz */
-    const int dur_ms = 150;
-    const int amp = 6000;       /* gentle */
+    const int dur_ms = 250;
+    const int amp = 12000;      /* clearly audible, not startling */
     const int total = AUDIO_SAMPLE_RATE * dur_ms / 1000;
 
     ESP_LOGI(TAG, "playing %dHz test tone for %dms", freq, dur_ms);

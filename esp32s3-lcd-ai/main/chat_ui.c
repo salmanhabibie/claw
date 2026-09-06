@@ -8,6 +8,7 @@
 #include "esp_lvgl_port.h"
 #include "esp_log.h"
 #include "esp_random.h"
+#include "esp_app_desc.h"
 
 #include "audio.h"
 #include "board.h"
@@ -457,6 +458,12 @@ static void build_settings(lv_obj_t *scr)
     lv_label_set_text(wblbl, "Atur ulang WiFi");
 #endif
 
+    /* Firmware version (short git hash), so anyone can read off exactly which
+     * build is running - no serial monitor needed. */
+    lv_obj_t *ver = lv_label_create(s_settings);
+    lv_label_set_text_fmt(ver, "Versi  %s", esp_app_get_description()->version);
+    lv_obj_set_style_text_color(ver, lv_color_hex(0x7d8b9c), 0);
+
     /* Close */
     lv_obj_t *btn = lv_button_create(s_settings);
     lv_obj_set_style_margin_top(btn, 10, 0);
@@ -477,7 +484,8 @@ void chat_ui_init(SemaphoreHandle_t talk_sem)
 
     /* Status line near the top (shown while active). */
     s_status = lv_label_create(scr);
-    lv_label_set_text(s_status, "Booting...");
+    lv_label_set_text_fmt(s_status, "Booting... [%s]",
+                          esp_app_get_description()->version);
     lv_obj_set_style_text_color(s_status, lv_color_hex(0x7ec8ff), 0);
     lv_obj_align(s_status, LV_ALIGN_TOP_MID, 0, 42);
 

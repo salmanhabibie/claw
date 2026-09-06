@@ -15,6 +15,8 @@ set(srcs
 )
 
 set(reqs
+    # build version shown in the settings panel
+    esp_app_format
     # networking + Claude API
     esp_wifi
     nvs_flash
