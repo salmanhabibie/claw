@@ -95,3 +95,12 @@ python3 filter_email.py emails.txt --unique
 
 Perbandingan dilakukan per-baris dan memperhitungkan baris duplikat, jadi kalau
 sebuah baris muncul 3x di File 1 tapi hanya 1x di File 2, maka 2 baris dihitung hilang.
+
+## 4. Asisten Suara (ElevenLabs Conversational AI)
+
+Halaman web (`index.html`) menyertakan widget asisten suara **Mika Agent** dari
+ElevenLabs Conversational AI, dimuat lewat CDN (`@elevenlabs/convai-widget`) —
+tidak butuh instalasi atau build tambahan. Widget muncul sebagai tombol
+mengambang di pojok halaman; klik untuk mulai percakapan suara dengan agent.
+
+Agent ID yang digunakan: `agent_1101kksx1285f8wre2ckqm7kyx8s`.
